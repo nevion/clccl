@@ -1,11 +1,39 @@
+#include "clcommons/common.h"
 #include "clcommons/image.h"
 
-typedef int LabelT;
-typedef int LDSLabelT;
-typedef uint PixelT;
-typedef uint LDSPixelT;
-typedef uint ConnectivityPixelT;
-typedef uint LDSConnectivityPixelT;
+#ifndef PIXELT
+#define PIXELT uint
+#endif
+#ifndef LABELT
+#define LABELT uint
+#endif
+#ifndef CONNECTIVITYPIXELT
+#define CONNECTIVITYPIXELT uint
+#endif
+#ifndef LDSPIXELT
+#define LDSPIXELT uint
+#endif
+#ifndef LDSLABELT
+#define LDSLABELT uint
+#endif
+#ifndef LDSCONNECTIVITYPIXELT
+#define LDSCONNECTIVITYPIXELT uint
+#endif
+
+typedef PIXELT PixelT;
+typedef LDSPIXELT LDSPixelT;
+typedef LABELT LabelT;
+typedef LDSLABELT LDSLabelT;
+typedef CONNECTIVITYPIXELT ConnectivityPixelT;
+typedef LDSCONNECTIVITYPIXELT LDSConnectivityPixelT;
+
+#ifndef BG_VALUE
+#define BG_VALUE 0
+#endif
+
+#ifndef CONNECTIVITY  //4 or 8
+#define CONNECTIVITY 8
+#endif
 
 #ifndef WORKGROUP_TILE_SIZE_X
 #define WORKGROUP_TILE_SIZE_X 32
@@ -35,13 +63,7 @@ enum ConnectivityEnum {
     RIGHT_DOWN = (1<<8)
 };
 
-#define BG_VALUE 0
-
 #define isConnected(p1, p2) ((p1) == (p2))
-
-#ifndef CONNECTIVITY
-#define CONNECTIVITY 8
-#endif
 
 #define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE2(basename, _p), im_rows, im_cols, PASTE2(basename, _pitch), (r), (c))
 
