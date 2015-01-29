@@ -1,5 +1,6 @@
 #include "clcommons/common.h"
 #include "clcommons/image.h"
+#include "clcommons/work_group.h"
 
 #ifndef PIXELT
 #define PIXELT uint
@@ -518,5 +519,161 @@ void relabel_with_scanline_order(
             final_label = scan_id + 1;
         }
         pixel_at(LabelT, labelim, r, c) = final_label;
+    }
+}
+
+//root class inclusive prefix sums belonging to each compute unit given to each tile - note if narray_workers == 1, no merge step is necessary
+//computes local prefix sums to get intra-wg blocksums, prefix sum that to get intra-wg offsets - this is needed to merge the final blocksums
+//global dims: <wgs_per_histogram, n_tiles>, work_dims: <wg_size, 1>
+//global blocksums[divUp(nblocks, blocks_per_wg)]
+__kernel
+#ifdef PROMISE_WG_IS_WAVEFRONT
+__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+#endif
+void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
+    __global PixelT *image_p, uint image_pitch,
+    __global const LabelT* labelim_p, const uint labelim_pitch,
+    __global const uint * restrict arrays_p, uint arrays_pitch,
+    __global uint * restrict array_intra_wg_block_sums_p,
+    __global uint * restrict array_prefix_sum_p
+){
+    const uint array_length = im_rows * im_cols;
+    const uint array_wg_id = get_group_id(0);
+    const uint narray_workers = get_num_groups(0);
+    const uint wg_size = get_local_size(0);
+    const uint block_size = wg_size;//efficient block size
+    const uint nblocks = divUp(array_length, block_size);//number of efficiently processible blocks
+    const uint nblocks_per_wg = nblocks / narray_workers;
+    const uint nblocks_to_merge = nblocks / nblocks_per_wg;
+    const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);
+    const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
+    const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
+
+    const uint start_bin = nblocks_to_left * block_size;
+    const uint end_bin_ = start_bin + n_wg_blocks * block_size;//block aligned end
+
+    uint inter_block_sum = 0;
+
+    for(uint linear_index = get_local_id(0) + start_bin; linear_index < end_bin_; linear_index += wg_size){
+        const uint r = linear_index / im_cols;
+        const uint c = linear_index % im_cols;
+
+        const uint linear_index = linear_index;
+        uint count = 0;
+        if(linear_index < array_length){
+            const PixelT pixel = pixel_at(PixelT, image, r, c);
+            const LabelT label = pixel_at(LabelT, labelim, r, c);
+            count = (pixel != BG_VALUE) & (label == linear_index);
+        }
+
+#ifdef USE_CL2_WORKGROUP_FUNCTIONS
+        uint block_prefix_sum_inclusive = work_group_scan_inclusive_add(linear_index_count);
+#else
+        __local uint lmem[WORK_GROUP_FUNCTION_MAX_MEMORY_SIZE];
+        uint block_prefix_sum_inclusive = clc_work_group_scan_inclusive_add_uint(linear_index_count, lmem);
+#endif
+
+        block_prefix_sum_inclusive += inter_block_sum;
+        if(linear_index < array_length){
+            array_prefix_sum_p[linear_index] = block_prefix_sum_inclusive;
+        }
+#ifdef USE_CL2_WORKGROUP_FUNCTIONS
+        inter_block_sum = work_group_broadcast(block_prefix_sum_inclusive, wg_size - 1);
+#else
+        __local uint value;
+        inter_block_sum = clc_work_group_broadcast1_uint(block_prefix_sum_inclusive, wg_size - 1, &value);
+#endif
+    }
+    if((array_intra_wg_block_sums_p != 0) & (get_local_id(0) == wg_size - 1)){
+        array_intra_wg_block_sums_p[array_wg_id] = inter_block_sum;
+    }
+}
+
+//exclusive prefix sums intra-wg blocksums to get intra-wg offsets - needed to merge together all the wg-local prefix sums
+//global dims: <1, n_tiles>, work_dims: <wg_size, 1>
+//global tile_intra_wg_block_sums[n_tiles][nblocks_to_merge]
+__kernel
+#ifdef PROMISE_WG_IS_WAVEFRONT
+__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+#endif
+void make_intra_wg_block_global_sums(
+    __global uint * restrict intra_wg_block_sums_p, uint nblocks_to_merge
+){
+    const uint n_arrays = get_num_groups(1);
+    const uint wg_size = get_local_size(0);
+
+    __local uint intra_wg_block_sums[WG_SIZE_MAX + 1];
+    if(get_local_id(0) == 0){
+        intra_wg_block_sums[0] = 0;
+    }
+    lds_barrier();
+    uint intra_wg_block_offset = 0;
+
+    for(uint intra_wg_block_id = get_local_id(0); intra_wg_block_id < divUp(nblocks_to_merge, wg_size) * wg_size; intra_wg_block_id += wg_size){
+        //get the unsumed blocksums
+        const uint intra_wg_block_sum = intra_wg_block_id < nblocks_to_merge ? intra_wg_block_sums_p[intra_wg_block_id] : 0;
+        intra_wg_block_sums[get_local_id(0) + 1] = intra_wg_block_sum;
+        lds_barrier();
+
+        const uint intra_wg_block_sum_delayed = intra_wg_block_sums[get_local_id(0)];
+#ifdef USE_CL2_WORKGROUP_FUNCTIONS
+        intra_wg_block_offset += work_group_scan_inclusive_add(intra_wg_block_sum_delayed);
+#else
+        __local uint lmem[WORK_GROUP_FUNCTION_MAX_MEMORY_SIZE];
+        intra_wg_block_offset += clc_work_group_scan_inclusive_add_uint(intra_wg_block_sum_delayed, lmem);
+#endif
+        if(intra_wg_block_id < nblocks_to_merge){
+            image_pixel_at(uint, intra_wg_block_sums_p, n_arrays, nblocks_to_merge, intra_wg_block_sums_pitch, array_id, intra_wg_block_id) = intra_wg_block_offset;
+        }
+#ifdef USE_CL2_WORKGROUP_FUNCTIONS
+        intra_wg_block_offset = work_group_broadcast(intra_wg_block_offset, wg_size - 1);
+#else
+        __local uint value;
+        intra_wg_block_offset = clc_work_group_broadcast1_uint(intra_wg_block_offset, wg_size - 1, &value);
+#endif
+
+        if(get_local_id(0) == 0){
+            intra_wg_block_sums[0] = intra_wg_block_sums[wg_size];
+        }
+        lds_barrier();
+    }
+}
+
+//merges global offsets of intra-wg-block offsets of prefix sums
+//global dims: <wgs_per_sum>, work_dims: <wg_size> : wg_size >= nblocks_to_merge
+//global array_of_prefix_sums[im_rows*im_cols] : as input partial sums, as output full prefix sum
+__kernel
+#ifdef PROMISE_WG_IS_WAVEFRONT
+__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+#endif
+void make_prefix_sums_with_intra_wg_block_global_sums(
+        const uint im_rows, const uint im_cols,
+        __global const uint * restrict intra_wg_block_sums_p, uint intra_wg_block_sums_pitch,
+        __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch //input -> partial/local prefix sums, output: global prefix sums
+){
+    const uint array_length = im_rows * im_cols;
+    const uint n_arrays = get_num_groups(1);
+    const uint array_id = get_group_id(1);
+    const uint array_wg_id = get_group_id(0);
+    const uint narray_workers = get_num_groups(0);
+    const uint wg_size = get_local_size(0);
+    const uint block_size = wg_size;//efficient block size
+    const uint nblocks = divUp(array_length, block_size);//number of efficiently processible blocks
+    const uint nblocks_per_wg = nblocks / narray_workers;
+    const uint nblocks_to_merge = nblocks / nblocks_per_wg;
+    const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);
+    const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
+    const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
+
+    const uint start_bin = nblocks_to_left * block_size;
+    const uint end_bin_ = start_bin + n_wg_blocks * block_size;//block aligned end
+
+    const uint inter_block_sum = intra_wg_block_sums_p[array_wg_id];
+    for(uint array_index = get_local_id(0) + start_bin; array_index < end_bin_; array_index += wg_size){
+        if(array_index < array_length){
+            const uint g_r = array_index / im_cols;
+            const uint g_c = array_index % im_cols;
+            image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, g_r, g_c) += inter_block_sum;
+        }
     }
 }
