@@ -476,6 +476,7 @@ void cross_merge(
     }while(pchanged);
 }
 
+#if 0
 __kernel
 void mark_root_classes(
     uint im_rows, uint im_cols,
@@ -494,6 +495,7 @@ void mark_root_classes(
         pixel_at(uint, is_root_class_image, r, c) = (pixel != BG_VALUE) & (label == linear_index);
     }
 }
+#endif
 
 __kernel
 void relabel_with_scanline_order(
