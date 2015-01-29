@@ -1,3 +1,8 @@
+#define PREFER_MCL_WORKGROUP_FUNCTIONS
+#if __OPENCL_VERSION__ >= 200 && !defined(PREFER_MCL_WORKGROUP_FUNCTIONS)
+#define USE_CL2_WORKGROUP_FUNCTIONS
+#endif
+
 #include "clcommons/common.h"
 #include "clcommons/image.h"
 #include "clcommons/work_group.h"
@@ -124,7 +129,7 @@ make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, ui
     tile_rows = tile_row_end - tile_row_start;
     tile_cols = tile_col_end - tile_col_start;
     const uint apron_tile_cols = tile_cols + 2;;
-    //const uint n_tile_pixels = tile_rows * tile_cols;
+    const uint n_tile_pixels = tile_rows * tile_cols;
     const uint n_work_items = get_local_size(0) * get_local_size(1);
     const uint n_apron_tile_pixels = (tile_rows + 2) * (apron_tile_cols);
     __local LDSPixelT im_tile[TILE_ROWS + 2][TILE_COLS + 2];
@@ -508,10 +513,9 @@ void relabel_with_scanline_order(
     const uint c = get_global_id(0);
     const uint r = get_global_id(1);
     const bool valid_pixel_task = (c < im_cols) & (r < im_rows);
-    const uint linear_index = c + r * im_cols;
 
     if(valid_pixel_task){
-        const LabelT pixel = pixel_at(PixelT, image, r, c);
+        const PixelT pixel = pixel_at(PixelT, image, r, c);
         LabelT final_label = 0;
         if(pixel != BG_VALUE){
             const LabelT label = pixel_at(LabelT, labelim, r, c);
@@ -520,9 +524,13 @@ void relabel_with_scanline_order(
             const uint scan_id = pixel_at(uint, scanline_prefix_sum_of_root_classes, label_r, label_c);
             final_label = scan_id + 1;
         }
-        pixel_at(LabelT, labelim, r, c) = final_label;
+        pixel_at(LabelT, labelim_out, r, c) = final_label;
     }
 }
+
+#ifndef USE_CL2_WORKGROUP_FUNCTIONS
+MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
+#endif
 
 //root class inclusive prefix sums belonging to each compute unit given to each tile - note if narray_workers == 1, no merge step is necessary
 //computes local prefix sums to get intra-wg blocksums, prefix sum that to get intra-wg offsets - this is needed to merge the final blocksums
@@ -546,7 +554,7 @@ void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
     const uint block_size = wg_size;//efficient block size
     const uint nblocks = divUp(array_length, block_size);//number of efficiently processible blocks
     const uint nblocks_per_wg = nblocks / narray_workers;
-    const uint nblocks_to_merge = nblocks / nblocks_per_wg;
+    //const uint nblocks_to_merge = nblocks / nblocks_per_wg;
     const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);
     const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
     const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
@@ -560,7 +568,6 @@ void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
         const uint r = linear_index / im_cols;
         const uint c = linear_index % im_cols;
 
-        const uint linear_index = linear_index;
         uint count = 0;
         if(linear_index < array_length){
             const PixelT pixel = pixel_at(PixelT, image, r, c);
@@ -569,10 +576,10 @@ void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
         }
 
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
-        uint block_prefix_sum_inclusive = work_group_scan_inclusive_add(linear_index_count);
+        uint block_prefix_sum_inclusive = work_group_scan_inclusive_add(count);
 #else
         __local uint lmem[WORK_GROUP_FUNCTION_MAX_MEMORY_SIZE];
-        uint block_prefix_sum_inclusive = clc_work_group_scan_inclusive_add_uint(linear_index_count, lmem);
+        uint block_prefix_sum_inclusive = clc_work_group_scan_inclusive_add_uint(count, lmem);
 #endif
 
         block_prefix_sum_inclusive += inter_block_sum;
@@ -625,7 +632,7 @@ void make_intra_wg_block_global_sums(
         intra_wg_block_offset += clc_work_group_scan_inclusive_add_uint(intra_wg_block_sum_delayed, lmem);
 #endif
         if(intra_wg_block_id < nblocks_to_merge){
-            image_pixel_at(uint, intra_wg_block_sums_p, n_arrays, nblocks_to_merge, intra_wg_block_sums_pitch, array_id, intra_wg_block_id) = intra_wg_block_offset;
+            intra_wg_block_sums_p[intra_wg_block_id] = intra_wg_block_offset;
         }
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
         intra_wg_block_offset = work_group_broadcast(intra_wg_block_offset, wg_size - 1);
