@@ -184,13 +184,10 @@ make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, ui
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void
 label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, uint labelim_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch){
-    const uint x = get_local_id(0) + get_group_id(0) * TILE_COLS;
-    const uint y = get_local_id(1) + get_group_id(1) * TILE_ROWS;
+    const uint tile_col_start = get_local_id(0) + get_group_id(0) * TILE_COLS;
+    const uint tile_row_start = get_local_id(1) + get_group_id(1) * TILE_ROWS;
 
     //if (x >= im_rows || y >= im_rows) return;
-
-    //currently x is 1
-    //int bounds = ((y + WORKITEM_REPEAT_Y) < im_rows);
 
     __local LDSLabelT label_tile_im[TILE_ROWS][TILE_COLS];
     __local LDSConnectivityPixelT  edge_tile_im[TILE_ROWS][TILE_COLS];
@@ -202,33 +199,33 @@ label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, 
     for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
         #pragma unroll
         for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
-            const uint yloc = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
-            const uint xloc = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
-            const bool valid_pixel_task = (xloc < im_cols) & (yloc < im_rows);
-            ConnectivityPixelT c = valid_pixel_task ? pixel_at(ConnectivityPixelT, connectivityim, y + WORKGROUP_TILE_SIZE_Y * i, x + WORKGROUP_TILE_SIZE_X * j) : 0;
+            const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+            const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+            const bool valid_pixel_task = (tile_col < im_cols) & (tile_row < im_rows);
+            ConnectivityPixelT c = valid_pixel_task ? pixel_at(ConnectivityPixelT, connectivityim, tile_row_start + WORKGROUP_TILE_SIZE_Y * i, tile_col_start + WORKGROUP_TILE_SIZE_X * j) : 0;
 
-            c = xloc == 0 ? c & ~(LEFT|LEFT_DOWN|LEFT_UP) : c;
-            c = yloc == 0 ? c & ~(UP|LEFT_UP|RIGHT_UP) : c;
+            c = tile_col == 0 ? c & ~(LEFT|LEFT_DOWN|LEFT_UP) : c;
+            c = tile_row == 0 ? c & ~(UP|LEFT_UP|RIGHT_UP) : c;
 
-            c = xloc == TILE_COLS - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
-            c = yloc == TILE_ROWS - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
+            c = tile_col == TILE_COLS - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
+            c = tile_row == TILE_ROWS - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
 
-            new_labels[i][j] = yloc * TILE_COLS + xloc;
-            edge_tile_im[yloc][xloc] = c;
+            new_labels[i][j] = tile_row * TILE_COLS + tile_col;
+            edge_tile_im[tile_row][tile_col] = c;
         }
     }
 
-    for (int k = 0; ;++k){
+    for (uint k = 0; ;++k){
         //make copies
         #pragma unroll
         for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
             #pragma unroll
             for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
-                const uint yloc = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
-                const uint xloc = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+                const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+                const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
 
                 old_labels[i][j]          = new_labels[i][j];
-                label_tile_im[yloc][xloc] = new_labels[i][j];
+                label_tile_im[tile_row][tile_col] = new_labels[i][j];
             }
         }
         lds_barrier();
@@ -238,39 +235,39 @@ label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, 
         for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
             #pragma unroll
             for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
-                const uint yloc = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
-                const uint xloc = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+                const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+                const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
 
-                const ConnectivityPixelT connectivity = edge_tile_im[yloc][xloc];
+                const ConnectivityPixelT connectivity = edge_tile_im[tile_row][tile_col];
                 LDSLabelT label = new_labels[i][j];
 
 #if CONNECTIVITY == 8
                 if (connectivity & UP)
-                   label = min(label, label_tile_im[yloc - 1][xloc]);
-                if (connectivity & LEFT)
-                   label = min(label, label_tile_im[yloc][xloc - 1]);
+                   label = min(label, label_tile_im[tile_row - 1][tile_col]);
                 if (connectivity & LEFT_UP)
-                   label = min(label, label_tile_im[yloc - 1][xloc - 1]);
+                   label = min(label, label_tile_im[tile_row - 1][tile_col - 1]);
+                if (connectivity & LEFT)
+                   label = min(label, label_tile_im[tile_row][tile_col - 1]);
                 if (connectivity &  LEFT_DOWN)
-                   label = min(label, label_tile_im[yloc + 1][xloc - 1]);
+                   label = min(label, label_tile_im[tile_row + 1][tile_col - 1]);
                 if (connectivity &  DOWN)
-                   label = min(label, label_tile_im[yloc + 1][xloc]);
+                   label = min(label, label_tile_im[tile_row + 1][tile_col]);
                 if (connectivity & RIGHT_DOWN)
-                   label = min(label, label_tile_im[yloc - 1][xloc + 1]);
+                   label = min(label, label_tile_im[tile_row - 1][tile_col + 1]);
                 if (connectivity & RIGHT)
-                   label = min(label, label_tile_im[yloc][xloc + 1]);
+                   label = min(label, label_tile_im[tile_row][tile_col + 1]);
                 if (connectivity & RIGHT_UP)
-                   label = min(label, label_tile_im[yloc + 1][xloc + 1]);
+                   label = min(label, label_tile_im[tile_row + 1][tile_col + 1]);
 
 #else
                 if (connectivity & UP)
-                   label = min(label, label_tile_im[yloc - 1][xloc]);
-                if (connectivity &  DOWN)
-                   label = min(label, label_tile_im[yloc + 1][xloc]);
+                   label = min(label, label_tile_im[tile_row - 1][tile_col]);
                 if (connectivity & LEFT)
-                   label = min(label, label_tile_im[yloc][xloc - 1]);
+                   label = min(label, label_tile_im[tile_row][tile_col - 1]);
+                if (connectivity &  DOWN)
+                   label = min(label, label_tile_im[tile_row + 1][tile_col]);
                 if (connectivity & RIGHT)
-                   label = min(label, label_tile_im[yloc][xloc + 1]);
+                   label = min(label, label_tile_im[tile_row][tile_col + 1]);
 #endif
 
                 new_labels[i][j] = label;
@@ -329,13 +326,15 @@ label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, 
         #pragma unroll
         for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
             const LabelT tile_label = new_labels[i][j];
-            const uint yloc = (tile_label / TILE_COLS) + get_group_id(0) * TILE_COLS;
-            const uint xloc = (tile_label % TILE_COLS) + get_group_id(1) * TILE_ROWS;
+            //convert the tile label into it's 2-D equivilent
+            const uint g_r = (tile_label / TILE_COLS) + get_group_id(0) * TILE_COLS;
+            const uint g_c = (tile_label % TILE_COLS) + get_group_id(1) * TILE_ROWS;
 
-            const LabelT glabel = yloc * im_cols + xloc;
-            const bool valid_pixel_task = (xloc < im_cols) & (yloc < im_rows);
+            //adjust to global offset and convert to scanline order again - this is globally unique
+            const LabelT glabel = g_r * im_cols + g_c;
+            const bool valid_pixel_task = (g_c < im_cols) & (g_r < im_rows);
             if(valid_pixel_task){
-                pixel_at(LabelT, labelim, yloc, xloc) = glabel;
+                pixel_at(LabelT, labelim, g_r, g_c) = glabel;
             }
         }
     }
