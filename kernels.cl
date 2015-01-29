@@ -99,7 +99,8 @@ enum ConnectivityEnum {
 //    }
 //}
 
-//global dimensions: divUp(im_cols, workgroup_tile_size_x), divUp(im_rows, workgroup_tile_size_y);
+#define apron_pixel(apron, t_r, t_c) apron[(t_r+ 1)][(t_c + 1)]
+//global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void
 make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch){
@@ -121,50 +122,56 @@ make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, ui
     //adjust to true tile dimensions
     tile_rows = tile_row_end - tile_row_start;
     tile_cols = tile_col_end - tile_col_start;
-    const uint n_tile_pixels = tile_rows * tile_cols;
-    __local LDSPixelT im_tile[WORKGROUP_TILE_SIZE_Y][WORKGROUP_TILE_SIZE_X];
-    __local ConnectivityPixelT connectivity_tile[WORKGROUP_TILE_SIZE_Y][WORKGROUP_TILE_SIZE_X];
+    const uint apron_tile_cols = tile_cols + 2;;
+    //const uint n_tile_pixels = tile_rows * tile_cols;
+    const uint n_work_items = get_local_size(0) * get_local_size(1);
+    const uint n_apron_tile_pixels = (tile_rows + 2) * (apron_tile_cols);
+    __local LDSPixelT im_tile[TILE_ROWS + 2][TILE_COLS + 2];
+    __local LDSConnectivityPixelT connectivity_tile[TILE_ROWS][TILE_COLS];
 
-    const uint tid = tile_row * tile_cols + tile_col;
-    for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_tile_pixels; im_tile_fill_task_id += n_tile_pixels){
-        const uint im_tile_row = im_tile_fill_task_id / tile_cols;
-        const uint im_tile_col = im_tile_fill_task_id % tile_cols;
-        const uint g_c = im_tile_col + tile_col_block * tile_col_blocksize;
-        const uint g_r = im_tile_row + tile_row_block * tile_row_blocksize;
+    const uint tid = get_local_id(0) * get_local_size(0) + get_local_id(1);
+    for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_apron_tile_pixels; im_tile_fill_task_id += n_work_items){
+        const uint im_apron_tile_row = im_tile_fill_task_id / apron_tile_cols;
+        const uint im_apron_tile_col = im_tile_fill_task_id % apron_tile_cols;
+        const int g_c = ((int)(im_apron_tile_col + tile_col_block * tile_col_blocksize)) - 1;
+        const int g_r = ((int)(im_apron_tile_row + tile_row_block * tile_row_blocksize)) - 1;
 
-        im_tile[im_tile_row][im_tile_col] = pixel_at(PixelT, image, g_r, g_c);
+        im_tile[im_apron_tile_row][im_apron_tile_col] = image_tex2D(PixelT, image_p, (int) im_rows, (int) im_cols, image_pitch, g_r, g_c, ADDRESS_ZERO);
     }
     lds_barrier();
 
-    {
-        const uint c = get_local_id(1);
-        const uint r = get_local_id(0);
-        const uint g_c = get_global_id(1);
-        const uint g_r = get_global_id(0);
-        PixelT pixel = valid_pixel_task ? pixel_at(PixelT, image, r, c) : 0;
-        ConnectivityPixelT connectivity = 0;
+    #pragma unroll
+    for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
+        #pragma unroll
+        for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
+            const uint c = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+            const uint r = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+            const uint g_c = get_global_id(1);
+            const uint g_r = get_global_id(0);
+            PixelT pixel = apron_pixel(im_tile, r, c);
+            ConnectivityPixelT connectivity = 0;
 
 #if CONNECTIVITY == 8
-        connectivity |= c > 0 && r > 0                         && isConnected(pixel, im_tile[r-1][c - 1]) ? LEFT_UP : 0;
-        connectivity |= c > 0                                  && isConnected(pixel, im_tile[r][c - 1]  ) ? LEFT : 0;
-        connectivity |= c > 0 && r < tile_rows - 1             && isConnected(pixel, im_tile[r+1][c - 1]) ? LEFT_DOWN : 0;
-        connectivity |=          r < tile_rows - 1             && isConnected(pixel, im_tile[r+1][c]    ) ? DOWN : 0;
-        connectivity |= c < tile_cols - 1 && r < tile_rows - 1 && isConnected(pixel, im_tile[r+1][c + 1]) ? RIGHT_DOWN : 0;
-        connectivity |= c < tile_cols - 1                      && isConnected(pixel, im_tile[r][c + 1]  ) ? RIGHT : 0;
-        connectivity |= c < tile_cols - 1 && r > 0             && isConnected(pixel, im_tile[r-1][c + 1]) ? RIGHT_UP : 0;
-        connectivity |=          r > 0                         && isConnected(pixel, im_tile[r-1][c]    ) ? UP : 0;
+            connectivity |= c > 0 && r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c - 1)) ? LEFT_UP : 0;
+            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, r  , c - 1)) ? LEFT : 0;
+            connectivity |= c > 0 && r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c - 1)) ? LEFT_DOWN : 0;
+            connectivity |=          r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c    )) ? DOWN : 0;
+            connectivity |= c < tile_cols - 1 && r < tile_rows - 1 && isConnected(pixel, apron_pixel(im_tile, r+1, c + 1)) ? RIGHT_DOWN : 0;
+            connectivity |= c < tile_cols - 1                      && isConnected(pixel, apron_pixel(im_tile, r  , c + 1)) ? RIGHT : 0;
+            connectivity |= c < tile_cols - 1 && r > 0             && isConnected(pixel, apron_pixel(im_tile, r-1, c + 1)) ? RIGHT_UP : 0;
+            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c    )) ? UP : 0;
 #else
-        connectivity |= c > 0                                  && isConnected(pixel, im_tile[r][c - 1]) ? LEFT : 0;
-        connectivity |=          r < tile_rows - 1             && isConnected(pixel, im_tile[r+1][c]  ) ? DOWN : 0;
-        connectivity |= c < tile_cols - 1                      && isConnected(pixel, im_tile[r][c + 1]) ? RIGHT : 0;
-        connectivity |=          r > 0                         && isConnected(pixel, im_tile[r-1][c]  ) ? UP : 0;
+            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, r  , c - 1)) ? LEFT : 0;
+            connectivity |=          r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c    )) ? DOWN : 0;
+            connectivity |= c < tile_cols - 1                      && isConnected(pixel, apron_pixel(im_tile, r  , c + 1)) ? RIGHT : 0;
+            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c    )) ? UP : 0;
 #endif
-        connectivity_tile[r][c] = connectivity;
-
+            connectivity_tile[r][c] = connectivity;
+        }
     }
     lds_barrier();
 
-    for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_tile_pixels; im_tile_fill_task_id += n_tile_pixels){
+    for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_tile_pixels; im_tile_fill_task_id += n_work_items){
         const uint im_tile_row = im_tile_fill_task_id / tile_cols;
         const uint im_tile_col = im_tile_fill_task_id % tile_cols;
         const uint g_c = im_tile_col + tile_col_block * tile_col_blocksize;
