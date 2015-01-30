@@ -108,8 +108,9 @@ enum ConnectivityEnum {
 #define apron_pixel(apron, t_r, t_c) apron[(t_r+ 1)][(t_c + 1)]
 //global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
-__kernel void
-make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch){
+__kernel void make_connectivity_image(
+    uint im_rows, uint im_cols, __global PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+){
     const uint tile_col_blocksize = get_local_size(0);
     const uint tile_row_blocksize = get_local_size(1);
     const uint tile_col_block = get_group_id(0) + get_global_offset(0) / tile_col_blocksize;
@@ -188,8 +189,9 @@ make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, ui
 }
 
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
-__kernel void
-label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, uint labelim_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch){
+__kernel void label_tiles(
+    uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, uint labelim_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+){
     const uint tile_col_start = get_local_id(0) + get_group_id(0) * TILE_COLS;
     const uint tile_row_start = get_local_id(1) + get_group_id(1) * TILE_ROWS;
 
@@ -281,7 +283,7 @@ label_tiles(uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, 
         }
         lds_barrier();
 
-        __local int changed;
+        __local uint changed;
         if((get_local_id(1) == 0) & (get_local_id(0) == 0)){
             changed = 0;
         }
@@ -362,8 +364,7 @@ LabelT find_root_global(const __global LabelT *labelim_p, uint labelim_pitch, La
     return label;
 }
 
-__kernel
-void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch){
+__kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch){
     const uint x = get_global_id(0);
     const uint y = get_global_id(1);
 
@@ -391,11 +392,11 @@ void merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
     *changed = true;
 }
 
-__kernel
-void cross_merge(
+//merge along the adjacent pixels in the grid formed on the image with the following tiles
+__kernel void merge_tiles(
+    const uint im_rows, const uint im_cols,
     const uint n_vert_tiles, const uint n_horz_tiles,
     uint tile_rows, uint tile_cols,
-    const uint im_rows, const uint im_cols,
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global LabelT *labelim_p, const uint labelim_pitch,
     const uint yIncomplete, uint xIncomplete
@@ -409,7 +410,7 @@ void cross_merge(
     const uint ybegin = get_group_id(1) * (n_vert_tiles * tile_rows);
     uint yend   = ybegin + n_vert_tiles * tile_rows;
 
-    if (get_group_id(1) == ngroups_y - 1){
+    if(get_group_id(1) == ngroups_y - 1){
         yend -= yIncomplete * tile_rows;
         yend -= tile_rows;
         tile_rows = (im_rows % tile_rows);
@@ -429,7 +430,7 @@ void cross_merge(
         xend += tile_cols;
     }
 
-    if (get_group_id(1) == (ngroups_y - 1) && yIncomplete){
+    if(get_group_id(1) == (ngroups_y - 1) && yIncomplete){
         xend = xbegin;
     }
 
@@ -482,8 +483,7 @@ void cross_merge(
 }
 
 #if 0
-__kernel
-void mark_root_classes(
+__kernel void mark_root_classes(
     uint im_rows, uint im_cols,
     __global PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
@@ -502,32 +502,6 @@ void mark_root_classes(
 }
 #endif
 
-__kernel
-void relabel_with_scanline_order(
-    uint im_rows, uint im_cols,
-    __global LabelT* labelim_out_p, const uint labelim_out_pitch,
-    __global const PixelT* image_p, const uint image_pitch,
-    __global const LabelT* labelim_p, const uint labelim_pitch,
-    __global uint* scanline_prefix_sum_of_root_classes_p, const uint scanline_prefix_sum_of_root_classes_pitch
-){
-    const uint c = get_global_id(0);
-    const uint r = get_global_id(1);
-    const bool valid_pixel_task = (c < im_cols) & (r < im_rows);
-
-    if(valid_pixel_task){
-        const PixelT pixel = pixel_at(PixelT, image, r, c);
-        LabelT final_label = 0;
-        if(pixel != BG_VALUE){
-            const LabelT label = pixel_at(LabelT, labelim, r, c);
-            const uint label_r = label / im_cols;
-            const uint label_c = label % im_cols;
-            const uint scan_id = pixel_at(uint, scanline_prefix_sum_of_root_classes, label_r, label_c);
-            final_label = scan_id + 1;
-        }
-        pixel_at(LabelT, labelim_out, r, c) = final_label;
-    }
-}
-
 #ifndef USE_CL2_WORKGROUP_FUNCTIONS
 MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 #endif
@@ -536,11 +510,10 @@ MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 //computes local prefix sums to get intra-wg blocksums, prefix sum that to get intra-wg offsets - this is needed to merge the final blocksums
 //global dims: <wgs_per_histogram, n_tiles>, work_dims: <wg_size, 1>
 //global blocksums[divUp(nblocks, blocks_per_wg)]
-__kernel
 #ifdef PROMISE_WG_IS_WAVEFRONT
 __attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
 #endif
-void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
+__kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
     __global PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
     __global const uint * restrict arrays_p, uint arrays_pitch,
@@ -601,11 +574,10 @@ void mark_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
 //exclusive prefix sums intra-wg blocksums to get intra-wg offsets - needed to merge together all the wg-local prefix sums
 //global dims: <1, n_tiles>, work_dims: <wg_size, 1>
 //global tile_intra_wg_block_sums[n_tiles][nblocks_to_merge]
-__kernel
 #ifdef PROMISE_WG_IS_WAVEFRONT
 __attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
 #endif
-void make_intra_wg_block_global_sums(
+__kernel void make_intra_wg_block_global_sums(
     __global uint * restrict intra_wg_block_sums_p, uint nblocks_to_merge
 ){
     const uint n_arrays = get_num_groups(1);
@@ -651,13 +623,12 @@ void make_intra_wg_block_global_sums(
 //merges global offsets of intra-wg-block offsets of prefix sums
 //global dims: <wgs_per_sum>, work_dims: <wg_size> : wg_size >= nblocks_to_merge
 //global array_of_prefix_sums[im_rows*im_cols] : as input partial sums, as output full prefix sum
-__kernel
 #ifdef PROMISE_WG_IS_WAVEFRONT
 __attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
 #endif
-void make_prefix_sums_with_intra_wg_block_global_sums(
+__kernel void make_prefix_sums_with_intra_wg_block_global_sums(
         const uint im_rows, const uint im_cols,
-        __global const uint * restrict intra_wg_block_sums_p, uint intra_wg_block_sums_pitch,
+        __global const uint * restrict intra_wg_block_sums_p,
         __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch //input -> partial/local prefix sums, output: global prefix sums
 ){
     const uint array_length = im_rows * im_cols;
@@ -683,6 +654,32 @@ void make_prefix_sums_with_intra_wg_block_global_sums(
             const uint g_r = array_index / im_cols;
             const uint g_c = array_index % im_cols;
             image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, g_r, g_c) += inter_block_sum;
+            //note we could save a honest chunk of time by putting the relabeling here
         }
+    }
+}
+
+__kernel void relabel_with_scanline_order(
+    uint im_rows, uint im_cols,
+    __global LabelT* labelim_out_p, const uint labelim_out_pitch,
+    __global const PixelT* image_p, const uint image_pitch,
+    __global const LabelT* labelim_p, const uint labelim_pitch,
+    __global uint* scanline_prefix_sum_of_root_classes_p, const uint scanline_prefix_sum_of_root_classes_pitch
+){
+    const uint c = get_global_id(0);
+    const uint r = get_global_id(1);
+    const bool valid_pixel_task = (c < im_cols) & (r < im_rows);
+
+    if(valid_pixel_task){
+        const PixelT pixel = pixel_at(PixelT, image, r, c);
+        LabelT final_label = 0;
+        if(pixel != BG_VALUE){
+            const LabelT label = pixel_at(LabelT, labelim, r, c);
+            const uint label_r = label / im_cols;
+            const uint label_c = label % im_cols;
+            const uint scan_id = pixel_at(uint, scanline_prefix_sum_of_root_classes, label_r, label_c);
+            final_label = scan_id + 1;
+        }
+        pixel_at(LabelT, labelim_out, r, c) = final_label;
     }
 }
