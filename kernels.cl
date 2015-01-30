@@ -268,11 +268,11 @@ __kernel void label_tiles(
                 if (connectivity &  DOWN)
                    label = min(label, label_tile_im[tile_row + 1][tile_col]);
                 if (connectivity & RIGHT_DOWN)
-                   label = min(label, label_tile_im[tile_row - 1][tile_col + 1]);
+                   label = min(label, label_tile_im[tile_row + 1][tile_col + 1]);
                 if (connectivity & RIGHT)
                    label = min(label, label_tile_im[tile_row][tile_col + 1]);
                 if (connectivity & RIGHT_UP)
-                   label = min(label, label_tile_im[tile_row + 1][tile_col + 1]);
+                   label = min(label, label_tile_im[tile_row - 1][tile_col + 1]);
 
 #else
                 if (connectivity & UP)
