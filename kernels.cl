@@ -522,7 +522,7 @@ MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 //global dims: <wgs_per_histogram, n_tiles>, work_dims: <wg_size, 1>
 //global blocksums[divUp(nblocks, blocks_per_wg)]
 #ifdef PROMISE_WG_IS_WAVEFRONT
-__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+__attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
     __global PixelT *image_p, uint image_pitch,
@@ -585,7 +585,7 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 //global dims: <1, n_tiles>, work_dims: <wg_size, 1>
 //global tile_intra_wg_block_sums[n_tiles][nblocks_to_merge]
 #ifdef PROMISE_WG_IS_WAVEFRONT
-__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+__attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void make_intra_wg_block_global_sums(
     __global uint * restrict intra_wg_block_sums_p, uint nblocks_to_merge
@@ -633,7 +633,7 @@ __kernel void make_intra_wg_block_global_sums(
 //global dims: <wgs_per_sum>, work_dims: <wg_size> : wg_size >= nblocks_to_merge
 //global array_of_prefix_sums[im_rows*im_cols] : as input partial sums, as output full prefix sum
 #ifdef PROMISE_WG_IS_WAVEFRONT
-__attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
+__attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
         const uint im_rows, const uint im_cols,
