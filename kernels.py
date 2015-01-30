@@ -98,7 +98,7 @@ class CCL(object):
     def merge_tiles(self, queue, connectivityim, labelim, merge_tiles_rc, merge_tile_size_rc, grid_size_rc, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
         ldims = self.WORKGROUP_TILE_SIZE_X, self.WORKGROUP_TILE_SIZE_Y
-        merge_grid_rc = divUp(grid_rc[0], merge_tiles_rc[0]), divUp(grid_rc[1], merge_tiles_rc[1])
+        merge_grid_rc = divUp(grid_size_rc[0], merge_tiles_rc[0]), divUp(grid_size_rc[1], merge_tiles_rc[1])
         gdims = merge_grid_rc[1] * ldims[0], merge_grid_rc[0] * ldims[1]
         event = self._merge_tiles(queue,
             gdims, ldims,
@@ -166,14 +166,14 @@ class CCL(object):
         event, labelim = self.label_tiles(queue, connectivityim, wait_for = [event])
 
         merge_grid_rc = divUp(self.img_size[0], self.TILE_ROWS), divUp(self.img_size[1], self.TILE_COLS)
-        tile_size_rc = self.TILE_ROWS, self.TILE_COLS
+        merge_tile_size_rc = self.TILE_ROWS, self.TILE_COLS
         merge_tiles_rc = (2, 2)
         merge_block_dims_cr = self.WORKGROUP_TILE_SIZE_X, self.WORKGROUP_TILE_SIZE_Y
         while merge_grid_rc[0] > 1 or merge_grid_rc[1] > 1:
-            event, = self.merge_tiles(queue, connectivityim, labelim, merge_tiles_rc, merge_tile_size_rc, grid_size_rc, wait_for = [event])
+            event, = self.merge_tiles(queue, connectivityim, labelim, merge_tiles_rc, merge_tile_size_rc, merge_grid_rc, wait_for = [event])
 
             merge_grid_rc = divUp(merge_grid_rc[0], merge_tiles_rc[0]), divUp(merge_grid_rc[1], merge_tiles_rc[1])
-            tile_size_rc = tile_size_rc[0] * merge_tiles_rc[0], tile_size_rc[1] * merge_tiles_rc[1]
+            merge_tile_size_rc = merge_tile_size_rc[0] * merge_tiles_rc[0], merge_tile_size_rc[1] * merge_tiles_rc[1]
 
         event, = self.compact_paths(queue, tiled_labelim, wait_for = [event])
         event, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, image, labelim, wait_for = [event])
