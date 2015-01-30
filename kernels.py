@@ -1,7 +1,7 @@
 from kernel_common import *
 
 class CCL(object):
-    def __init__(self, img_size, src_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size):
+    def __init__(self, img_size, img_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size):
         self.img_size = img_size
         self.img_dtype = img_dtype
         self.label_dtype = label_dtype
@@ -16,21 +16,22 @@ class CCL(object):
         self.WORKGROUP_TILE_SIZE_Y = 2
         self.WORKITEM_REPEAT_X     = 1
         self.WORKITEM_REPEAT_Y     = 16
-        self.TILE_ROWS = WORKGROUP_TILE_SIZE_Y * WORKITEM_REPEAT_Y
-        self.TILE_COLS = WORKGROUP_TILE_SIZE_X * WORKITEM_REPEAT_X
+        self.TILE_ROWS = self.WORKGROUP_TILE_SIZE_Y * self.WORKITEM_REPEAT_Y
+        self.TILE_COLS = self.WORKGROUP_TILE_SIZE_X * self.WORKITEM_REPEAT_X
         self.COMPACT_TILE_ROWS = 32
         self.COMPACT_TILE_COLS = 8
 
     def make_input_buffer(self, queue):
-        return clarray.empty(queue, self.img_size, dtype=self.pixel_dtype)
-    def make_hostt_output_buffer(self, queue):
-        return np.empty(queue, self.img_size, dtype=self.label_dtype)
+        return clarray.empty(queue, tuple(self.img_size), dtype=self.img_dtype)
+
+    def make_host_output_buffer(self):
+        return np.empty(self.img_size, dtype=self.label_dtype)
 
     def compile(self):
         PixelT = type_mapper(self.img_dtype)
         LabelT = type_mapper(self.label_dtype)
 
-        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X=${wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y=${wg_tile_size_y} -D WORKITEM_REPEAT_X=${wi_repeat_x} -D WORKITEM_REPEAT_Y=${wi_repeat_y}' \
+        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y}' \
             .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X)
         CL_SOURCE = file(os.path.join(base_path, 'kernels.cl'), 'r').read()
         CL_FLAGS = "-I %s -cl-std=CL1.2 %s" %(common_lib_path, KERNEL_FLAGS)
@@ -161,7 +162,7 @@ class CCL(object):
         return event, labelim_result
 
     def __call__(self, queue, cl_img, wait_for = None):
-        event, connectivityim = self.make_connectivity_image(queue, cl_image, wait_for=wait_for)
+        event, connectivityim = self.make_connectivity_image(queue, cl_img, wait_for=wait_for)
         event, labelim = self.label_tiles(queue, connectivityim, wait_for = [event])
 
         merge_grid_rc = divUp(self.img_size[0], self.TILE_ROWS), divUp(self.img_size[1], self.TILE_COLS)
