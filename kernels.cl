@@ -192,8 +192,13 @@ __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y
 __kernel void label_tiles(
     uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, uint labelim_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
-    const uint tile_col_start = get_local_id(0) + get_group_id(0) * TILE_COLS;
-    const uint tile_row_start = get_local_id(1) + get_group_id(1) * TILE_ROWS;
+    const uint tile_col_start = get_group_id(0) * TILE_COLS;
+    const uint tile_row_start = get_group_id(1) * TILE_ROWS;
+    const uint tile_col_end = min((get_group_id(0) + 1) * TILE_COLS, (uint) im_cols);
+    const uint tile_row_end = min((get_group_id(1) + 1) * TILE_ROWS, (uint) im_rows);
+    //adjust to true tile dimensions
+    const uint tile_rows = tile_row_end - tile_row_start;
+    const uint tile_cols = tile_col_end - tile_col_start;
 
     //if (x >= im_rows || y >= im_rows) return;
 
@@ -209,16 +214,18 @@ __kernel void label_tiles(
         for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
             const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
             const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
-            const bool valid_pixel_task = (tile_col < im_cols) & (tile_row < im_rows);
-            ConnectivityPixelT c = valid_pixel_task ? pixel_at(ConnectivityPixelT, connectivityim, tile_row_start + WORKGROUP_TILE_SIZE_Y * i, tile_col_start + WORKGROUP_TILE_SIZE_X * j) : 0;
+            const bool valid_pixel_task = (tile_col < tile_cols) & (tile_row < tile_rows);
+            ConnectivityPixelT c = valid_pixel_task ? pixel_at(ConnectivityPixelT, connectivityim, tile_row_start + tile_row, tile_col_start + tile_col) : 0;
 
             c = tile_col == 0 ? c & ~(LEFT|LEFT_DOWN|LEFT_UP) : c;
             c = tile_row == 0 ? c & ~(UP|LEFT_UP|RIGHT_UP) : c;
 
-            c = tile_col == TILE_COLS - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
-            c = tile_row == TILE_ROWS - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
+            c = tile_col == tile_cols - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
+            c = tile_row == tile_rows - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
 
-            new_labels[i][j] = tile_row * TILE_COLS + tile_col;
+            c = valid_pixel_task ? c : 0;
+
+            new_labels[i][j] = valid_pixel_task ? tile_row * tile_cols + tile_col : -1;
             edge_tile_im[tile_row][tile_col] = c;
         }
     }
@@ -232,7 +239,7 @@ __kernel void label_tiles(
                 const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
                 const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
 
-                old_labels[i][j]          = new_labels[i][j];
+                old_labels[i][j] = new_labels[i][j];
                 label_tile_im[tile_row][tile_col] = new_labels[i][j];
             }
         }
@@ -291,7 +298,7 @@ __kernel void label_tiles(
 
         __local LDSLabelT *labels = &label_tile_im[0][0];
 
-        int pchanged = 0;
+        uint pchanged = 0;
         #pragma unroll
         for(int i = 0; i < WORKITEM_REPEAT_Y; ++i){
             #pragma unroll
@@ -315,14 +322,18 @@ __kernel void label_tiles(
         for(int i = 0; i < WORKITEM_REPEAT_Y; ++i){
             #pragma unroll
             for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
-                LDSLabelT label = new_labels[i][j];
+                const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+                const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+                const bool valid_pixel_task = (tile_col < tile_cols) & (tile_row < tile_rows);
+                if(valid_pixel_task){
+                    LDSLabelT label = new_labels[i][j];
+                    //find root label
+                    while(labels[label] < label){
+                        label = labels[label];
+                    }
 
-                //find root label
-                while(labels[label] < label){
-                    label = labels[label];
+                    new_labels[i][j] = label;
                 }
-
-                new_labels[i][j] = label;
             }
         }
         lds_barrier();
@@ -335,8 +346,8 @@ __kernel void label_tiles(
         for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
             const LabelT tile_label = new_labels[i][j];
             //convert the tile label into it's 2-D equivilent
-            const uint g_r = (tile_label / TILE_COLS) + get_group_id(0) * TILE_COLS;
-            const uint g_c = (tile_label % TILE_COLS) + get_group_id(1) * TILE_ROWS;
+            const uint g_r = (tile_label / tile_cols) + tile_col_start;
+            const uint g_c = (tile_label % tile_cols) + tile_row_start;
 
             //adjust to global offset and convert to scanline order again - this is globally unique
             const LabelT glabel = g_r * im_cols + g_c;
