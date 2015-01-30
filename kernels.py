@@ -39,15 +39,15 @@ class CCL(object):
         print '%r compile flags: %s'%(self.__class__.__name__, CL_FLAGS)
         self.program = cl.Program(ctx, CL_SOURCE).build(options=CL_FLAGS)
 
-        self._make_connectivity_image                          = self.program.make_connectivity_image
-        self._label_tiles                                      = self.program.label_tiles
-        self._compact_paths_global                             = self.program.compact_paths_global
-        self._merge_tiles                                      = self.program.merge_tiles
-        #self._mark_root_classes                                = self.program.mark_root_classes
-        self._relabel_with_scanline_order                      = self.program.relabel_with_scanline_order
-        self._mark_roots_and_make_intra_wg_block_local_prefix_sums   = self.program.mark_roots_and_make_intra_wg_block_local_prefix_sums
-        self._make_intra_wg_block_global_sums                  = self.program.make_intra_wg_block_global_sums
-        self._make_prefix_sums_with_intra_wg_block_global_sums = self.program.make_prefix_sums_with_intra_wg_block_global_sums
+        self._make_connectivity_image                               = self.program.make_connectivity_image
+        self._label_tiles                                           = self.program.label_tiles
+        self._compact_paths_global                                  = self.program.compact_paths_global
+        self._merge_tiles                                           = self.program.merge_tiles
+        #self._mark_root_classes                                     = self.program.mark_root_classes
+        self._relabel_with_scanline_order                           = self.program.relabel_with_scanline_order
+        self._mark_roots_and_make_intra_wg_block_local_prefix_sums  = self.program.mark_roots_and_make_intra_wg_block_local_prefix_sums
+        self._make_intra_wg_block_global_sums                       = self.program.make_intra_wg_block_global_sums
+        self._make_prefix_sums_with_intra_wg_block_global_sums      = self.program.make_prefix_sums_with_intra_wg_block_global_sums
 
     def make_connectivity_image(self, queue, image, wait_for = None):
         tile_dims = self.TILE_COLS, self.TILE_ROWS
