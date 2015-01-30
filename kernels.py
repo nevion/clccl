@@ -56,7 +56,7 @@ class CCL(object):
         r_blocks, c_blocks = divUp(rows, tile_dims[1]), divUp(cols, tile_dims[0])
         gdims = (c_blocks * ldims[0], r_blocks * ldims[1])
         connectivityim = clarray.empty(queue, tuple(self.img_size), uint32)
-        event = self._label_tiles(queue,
+        event = self._make_connectivity_image(queue,
             gdims, ldims,
             uint32(rows), uint32(cols),
             image.data, uint32(image.strides[0]),
