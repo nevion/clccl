@@ -194,8 +194,8 @@ __kernel void label_tiles(
 ){
     const uint tile_col_start = get_group_id(0) * TILE_COLS;
     const uint tile_row_start = get_group_id(1) * TILE_ROWS;
-    const uint tile_col_end = min((get_group_id(0) + 1) * TILE_COLS, (uint) im_cols);
-    const uint tile_row_end = min((get_group_id(1) + 1) * TILE_ROWS, (uint) im_rows);
+    const uint tile_col_end = min((uint) ((get_group_id(0) + 1) * TILE_COLS), im_cols);
+    const uint tile_row_end = min((uint) ((get_group_id(1) + 1) * TILE_ROWS), im_rows);
     //adjust to true tile dimensions
     const uint tile_rows = tile_row_end - tile_row_start;
     const uint tile_cols = tile_col_end - tile_col_start;
