@@ -3,7 +3,7 @@
 from kernels import *
 from scipy.misc import imread
 import time
-frame = imread('spiral.png')[:, :, :3].copy()
+frame = imread('spiralc-2044.png')
 
 pixel_dtype = np.dtype(np.uint32)
 label_dtype = np.dtype(np.uint32)
