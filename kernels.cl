@@ -567,7 +567,7 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 
         block_prefix_sum_inclusive += inter_block_sum;
         if(linear_index < array_length){
-            array_prefix_sum_p[linear_index] = block_prefix_sum_inclusive;
+            pixel_at(uint, array_prefix_sum, r, c) = block_prefix_sum_inclusive;
         }
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
         inter_block_sum = work_group_broadcast(block_prefix_sum_inclusive, wg_size - 1);
