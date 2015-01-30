@@ -430,7 +430,7 @@ __kernel void merge_tiles(
     }
 
     const uint xbegin = get_group_id(0) * n_horz_tiles * tile_cols;
-    uint xend   = xbegin + n_horz_tiles * tile_cols;
+    uint xend = xbegin + n_horz_tiles * tile_cols;
 
     if(get_group_id(0) == ngroups_x - 1){
         if (xIncomplete) yend = ybegin;
@@ -527,9 +527,8 @@ __attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
 __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
     __global PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
-    __global const uint * restrict arrays_p, uint arrays_pitch,
     __global uint * restrict array_intra_wg_block_sums_p,
-    __global uint * restrict array_prefix_sum_p
+    __global uint * restrict array_prefix_sum_p, const uint array_prefix_sum_pitch
 ){
     const uint array_length = im_rows * im_cols;
     const uint array_wg_id = get_group_id(0);
@@ -591,7 +590,6 @@ __attribute__((reqd_work_group_size(AMD_WAVEFRONT_SIZE, 1, 1)))
 __kernel void make_intra_wg_block_global_sums(
     __global uint * restrict intra_wg_block_sums_p, uint nblocks_to_merge
 ){
-    const uint n_arrays = get_num_groups(1);
     const uint wg_size = get_local_size(0);
 
     __local uint intra_wg_block_sums[WG_SIZE_MAX + 1];
