@@ -225,7 +225,7 @@ __kernel void label_tiles(
 
             c = valid_pixel_task ? c : 0;
 
-            new_labels[i][j] = valid_pixel_task ? tile_row * tile_cols + tile_col : -1;
+            new_labels[i][j] = valid_pixel_task ? tile_row * tile_cols + tile_col : ((LDSLabelT) -1);
             edge_tile_im[tile_row][tile_col] = c;
         }
     }
