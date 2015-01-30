@@ -87,7 +87,7 @@ class CCL(object):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
         r_blocks, c_blocks = divUp(rows, ldims[1]), divUp(cols, ldims[0])
         gdims = (c_blocks * ldims[0], r_blocks * ldims[1])
-        event = self._label_tiles(queue,
+        event = self._compact_paths_global(queue,
             gdims, ldims,
             uint32(rows), uint32(cols),
             labelim.data, uint32(labelim.strides[0]),
@@ -113,31 +113,32 @@ class CCL(object):
         return event,
 
     def mark_roots_and_make_prefix_sums(self, queue, image, labelim, wait_for = None):
+        rows, cols = int(self.img_size[0]), int(self.img_size[1])
         compute_units = device.max_compute_units
         wg_size = self.best_wg_size
         n_pixels = self.img_size[0] * self.img_size[1]
         nblocks = divUp(n_pixels, wg_size)
-        nblocks_per_wg = nblocks//wgs_per_tile
+        nblocks_per_wg = nblocks//compute_units
         n_block_sums = nblocks//nblocks_per_wg
         intra_wg_block_sums = clarray.empty(queue, (n_block_sums,), np.uint32)
         prefix_sums = clarray.empty(queue, tuple(self.img_size), np.uint32)
         gdims = (nblocks * wg_size, )
         ldims = (wg_size,)
-        event = self._mark_roots_and_make_wg_block_local_prefix_sums(queue, (nblocks * wg_size,), (wg_size,),
-            uint32(im_rows), uint32(im_cols),
+        event = self._mark_roots_and_make_intra_wg_block_local_prefix_sums(queue, (compute_units * wg_size,), (wg_size,),
+            uint32(rows), uint32(cols),
             image.data, uint32(image.strides[0]),
             labelim.data, uint32(labelim.strides[0]),
-            intra_wg_block_sums.data, uint32(intra_wg_block_sums.strides[0]),
+            intra_wg_block_sums.data,
             prefix_sums.data, uint32(prefix_sums.strides[0]),
-            wait_for = wait_for
+            wait_for=wait_for
         )
-        event = self._make_2D_array_of_intra_wg_block_global_sums(queue, (1 * wg_size,), (wg_size),
-            intra_wg_block_sums.data, uint32(intra_wg_block_sums.strides[0]), uint32(n_block_sums),
+        event = self._make_intra_wg_block_global_sums(queue, (1 * wg_size,), (wg_size,),
+            intra_wg_block_sums.data, uint32(n_block_sums),
             wait_for=[event]
         )
-        event = self._make_prefix_sums_with_intra_wg_block_global_sums(queue, (nblocks * wg_size,), (wg_size,),
+        event = self._make_prefix_sums_with_intra_wg_block_global_sums(queue, (compute_units * wg_size,), (wg_size,),
             uint32(rows), uint32(cols),
-            intra_wg_block_sums.data, intra_wg_block_sums,
+            intra_wg_block_sums.data,
             prefix_sums.data, uint32(prefix_sums.strides[0]),
             wait_for=[event]
         )
@@ -175,7 +176,7 @@ class CCL(object):
             merge_grid_rc = divUp(merge_grid_rc[0], merge_tiles_rc[0]), divUp(merge_grid_rc[1], merge_tiles_rc[1])
             merge_tile_size_rc = merge_tile_size_rc[0] * merge_tiles_rc[0], merge_tile_size_rc[1] * merge_tiles_rc[1]
 
-        event, = self.compact_paths(queue, tiled_labelim, wait_for = [event])
-        event, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, image, labelim, wait_for = [event])
-        event, labelim_result = self.relabel_with_scanline_order(queue, image, labelim, prefix_sums, wait_for = [event])
+        event, = self.compact_paths(queue, labelim, wait_for = [event])
+        event, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
+        event, labelim_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
         return event, labelim_result
