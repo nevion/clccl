@@ -29,13 +29,7 @@ class CCL(object):
             .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X)
         CL_SOURCE = file(os.path.join(base_path, 'kernels.cl'), 'r').read()
         CL_FLAGS = "-I %s -cl-std=CL1.2 %s" %(common_lib_path, KERNEL_FLAGS)
-        if is_device_amd(self.device):
-            CL_FLAGS2 = '-D AMD_ARCH -D AMD_WAVEFRONT_SIZE={wavefront_size} '.format(wavefront_size=self.device.wavefront_width_amd)
-            if self.best_wg_size == device.wavefront_width_amd:
-                CL_FLAGS2 = CL_FLAGS2 + '-D PROMISE_WG_IS_WAVEFRONT '
-            CL_FLAGS = CL_FLAGS2 + CL_FLAGS
-        if self.debug:
-            CL_FLAGS = '-D DEBUG '+CL_FLAGS
+        CL_FLAGS = cl_opt_decorate(self, CL_FLAGS, self.best_wg_size)
         print '%r compile flags: %s'%(self.__class__.__name__, CL_FLAGS)
         self.program = cl.Program(ctx, CL_SOURCE).build(options=CL_FLAGS)
 
