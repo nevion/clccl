@@ -21,6 +21,11 @@ class CCL(object):
         self.COMPACT_TILE_ROWS = 32
         self.COMPACT_TILE_COLS = 8
 
+    def make_input_buffer(self, queue):
+        return clarray.empty(queue, self.img_size, dtype=self.pixel_dtype)
+    def make_hostt_output_buffer(self, queue):
+        return np.empty(queue, self.img_size, dtype=self.label_dtype)
+
     def compile(self):
         PixelT = type_mapper(self.img_dtype)
         LabelT = type_mapper(self.label_dtype)
