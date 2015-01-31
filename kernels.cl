@@ -284,16 +284,18 @@ __kernel void label_tiles(
         }
         lds_barrier();
 
-        __local LDSLabelT *labels = &label_tile_im[0][0];
-
         uint pchanged = 0;
         #pragma unroll
         for(int i = 0; i < WORKITEM_REPEAT_Y; ++i){
             #pragma unroll
             for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
-                if(new_labels[i][j] < old_labels[i][j]){
+                const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+                const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+                const bool valid_pixel_task = (tile_col < tile_cols) & (tile_row < tile_rows);
+                const uint old_label = old_labels[i][j];
+                if(valid_pixel_task & (new_labels[i][j] < old_label)){
                     pchanged++;
-                    atomic_min(labels + old_labels[i][j], new_labels[i][j]);
+                    atomic_min(&label_tile_im[old_label / tile_cols][old_label % tile_cols], new_labels[i][j]);
                 }
             }
         }
@@ -316,8 +318,8 @@ __kernel void label_tiles(
                 if(valid_pixel_task){
                     LDSLabelT label = new_labels[i][j];
                     //find root label
-                    while(labels[label] < label){
-                        label = labels[label];
+                    while(label_tile_im[label / tile_cols][label % tile_cols] < label){
+                        label = label_tile_im[label / tile_cols][label % tile_cols];
                     }
 
                     new_labels[i][j] = label;
@@ -334,13 +336,19 @@ __kernel void label_tiles(
         for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
             const LabelT tile_label = new_labels[i][j];
             //convert the tile label into it's 2-D equivilent
-            const uint g_r = (tile_label / tile_cols) + tile_col_start;
-            const uint g_c = (tile_label % tile_cols) + tile_row_start;
+            const uint l_g_r = (tile_label / tile_cols) + tile_row_start;
+            const uint l_g_c = (tile_label % tile_cols) + tile_col_start;
+
+            const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+            const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+            const uint g_r = tile_row_start + tile_row;
+            const uint g_c = tile_col_start + tile_col;
 
             //adjust to global offset and convert to scanline order again - this is globally unique
-            const LabelT glabel = g_r * im_cols + g_c;
+            const LabelT glabel = l_g_r * im_cols + l_g_c;
             const bool valid_pixel_task = (g_c < im_cols) & (g_r < im_rows);
             if(valid_pixel_task){
+                assert_val(tile_label < tile_rows * tile_cols, tile_label);
                 pixel_at(LabelT, labelim, g_r, g_c) = glabel;
             }
         }
