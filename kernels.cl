@@ -168,6 +168,7 @@ __kernel void make_connectivity_image(
             connectivity |= c < tile_cols - 1                      && isConnected(pixel, apron_pixel(im_tile, r  , c + 1)) ? RIGHT : 0;
             connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c    )) ? UP : 0;
 #endif
+            connectivity = (c < tile_cols) & (r < tile_rows) ? connectivity : 0;
             connectivity_tile[r][c] = connectivity;
         }
     }
