@@ -109,21 +109,20 @@ __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y
 __kernel void make_connectivity_image(
     uint im_rows, uint im_cols, __global const PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
-    const uint tile_col_blocksize = get_local_size(0);
-    const uint tile_row_blocksize = get_local_size(1);
-    const uint tile_col_block = get_group_id(0) + get_global_offset(0) / tile_col_blocksize;
-    const uint tile_row_block = get_group_id(1) + get_global_offset(1) / tile_row_blocksize;
+    const uint tile_col_blocksize = TILE_COLS;
+    const uint tile_row_blocksize = TILE_ROWS;
+    const uint tile_col_block = get_group_id(0) + get_global_offset(0) / get_local_size(0);
+    const uint tile_row_block = get_group_id(1) + get_global_offset(1) / get_local_size(1);
     const uint tile_col = get_local_id(0);
     const uint tile_row = get_local_id(1);
-    const bool valid_pixel_task = (get_global_id(0) < im_cols) & (get_global_id(1) < im_rows);
 
     uint tile_rows = tile_row_blocksize;
     uint tile_cols = tile_col_blocksize;
 
-    const uint tile_row_start = tile_row_blocksize * tile_rows;
-    const uint tile_col_start = tile_col_blocksize * tile_cols;
-    const uint tile_row_end = min((tile_row_blocksize + 1) * tile_rows, (uint) im_rows);
-    const uint tile_col_end = min((tile_col_blocksize + 1) * tile_cols, (uint) im_cols);
+    const uint tile_row_start = tile_row_block * tile_rows;
+    const uint tile_col_start = tile_col_block * tile_cols;
+    const uint tile_row_end = min(tile_row_start + tile_rows, (uint) im_rows);
+    const uint tile_col_end = min(tile_col_start + tile_cols, (uint) im_cols);
     //adjust to true tile dimensions
     tile_rows = tile_row_end - tile_row_start;
     tile_cols = tile_col_end - tile_col_start;
@@ -134,12 +133,12 @@ __kernel void make_connectivity_image(
     __local LDSPixelT im_tile[TILE_ROWS + 2][TILE_COLS + 2];
     __local LDSConnectivityPixelT connectivity_tile[TILE_ROWS][TILE_COLS];
 
-    const uint tid = get_local_id(0) * get_local_size(0) + get_local_id(1);
+    const uint tid = get_local_linear_id();
     for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_apron_tile_pixels; im_tile_fill_task_id += n_work_items){
         const uint im_apron_tile_row = im_tile_fill_task_id / apron_tile_cols;
         const uint im_apron_tile_col = im_tile_fill_task_id % apron_tile_cols;
-        const int g_c = ((int)(im_apron_tile_col + tile_col_block * tile_col_blocksize)) - 1;
-        const int g_r = ((int)(im_apron_tile_row + tile_row_block * tile_row_blocksize)) - 1;
+        const int g_c = ((int)(im_apron_tile_col + tile_col_start)) - 1;
+        const int g_r = ((int)(im_apron_tile_row + tile_row_start)) - 1;
 
         im_tile[im_apron_tile_row][im_apron_tile_col] = image_tex2D(PixelT, image_p, (int) im_rows, (int) im_cols, image_pitch, g_r, g_c, ADDRESS_ZERO);
     }
@@ -151,8 +150,6 @@ __kernel void make_connectivity_image(
         for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
             const uint c = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
             const uint r = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
-            const uint g_c = get_global_id(1);
-            const uint g_r = get_global_id(0);
             PixelT pixel = apron_pixel(im_tile, r, c);
             ConnectivityPixelT connectivity = 0;
 
@@ -179,8 +176,8 @@ __kernel void make_connectivity_image(
     for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_tile_pixels; im_tile_fill_task_id += n_work_items){
         const uint im_tile_row = im_tile_fill_task_id / tile_cols;
         const uint im_tile_col = im_tile_fill_task_id % tile_cols;
-        const uint g_c = im_tile_col + tile_col_block * tile_col_blocksize;
-        const uint g_r = im_tile_row + tile_row_block * tile_row_blocksize;
+        const uint g_c = im_tile_col + tile_col_start;
+        const uint g_r = im_tile_row + tile_row_start;
 
         pixel_at(ConnectivityPixelT, connectivityim, g_r, g_c) = connectivity_tile[im_tile_row][im_tile_col];
     }
@@ -190,13 +187,21 @@ __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y
 __kernel void label_tiles(
     uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch, __global const ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
-    const uint tile_col_start = get_group_id(0) * TILE_COLS;
-    const uint tile_row_start = get_group_id(1) * TILE_ROWS;
-    const uint tile_col_end = min((uint) ((get_group_id(0) + 1) * TILE_COLS), im_cols);
-    const uint tile_row_end = min((uint) ((get_group_id(1) + 1) * TILE_ROWS), im_rows);
+    const uint tile_col_blocksize = TILE_COLS;
+    const uint tile_row_blocksize = TILE_ROWS;
+    const uint tile_col_block = get_group_id(0) + get_global_offset(0) / get_local_size(0);
+    const uint tile_row_block = get_group_id(1) + get_global_offset(1) / get_local_size(1);
+
+    uint tile_rows = tile_row_blocksize;
+    uint tile_cols = tile_col_blocksize;
+
+    const uint tile_row_start = tile_row_block * tile_rows;
+    const uint tile_col_start = tile_col_block * tile_cols;
+    const uint tile_row_end = min(tile_row_start + tile_rows, (uint) im_rows);
+    const uint tile_col_end = min(tile_col_start + tile_cols, (uint) im_cols);
     //adjust to true tile dimensions
-    const uint tile_rows = tile_row_end - tile_row_start;
-    const uint tile_cols = tile_col_end - tile_col_start;
+    tile_rows = tile_row_end - tile_row_start;
+    tile_cols = tile_col_end - tile_col_start;
 
     //if (x >= im_rows || y >= im_rows) return;
 
