@@ -223,10 +223,8 @@ __kernel void label_tiles(
             c = tile_col == 0 ? c & ~(LEFT|LEFT_DOWN|LEFT_UP) : c;
             c = tile_row == 0 ? c & ~(UP|LEFT_UP|RIGHT_UP) : c;
 
-            c = tile_col == tile_cols - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
-            c = tile_row == tile_rows - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
-
-            c = valid_pixel_task ? c : 0;
+            c = tile_col >= tile_cols - 1 ? c & ~(RIGHT|RIGHT_DOWN|RIGHT_UP) : c;
+            c = tile_row >= tile_rows - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
 
             new_labels[i][j] = valid_pixel_task ? tile_row * tile_cols + tile_col : ((LDSLabelT) -1);
             edge_tile_im[tile_row][tile_col] = c;
