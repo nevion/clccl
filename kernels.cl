@@ -258,32 +258,19 @@ __kernel void label_tiles(
                 LDSLabelT label = new_labels[i][j];
 
 #if CONNECTIVITY == 8
-                if (connectivity & UP)
-                   label = min(label, label_tile_im[tile_row - 1][tile_col]);
-                if (connectivity & LEFT_UP)
-                   label = min(label, label_tile_im[tile_row - 1][tile_col - 1]);
-                if (connectivity & LEFT)
-                   label = min(label, label_tile_im[tile_row][tile_col - 1]);
-                if (connectivity &  LEFT_DOWN)
-                   label = min(label, label_tile_im[tile_row + 1][tile_col - 1]);
-                if (connectivity &  DOWN)
-                   label = min(label, label_tile_im[tile_row + 1][tile_col]);
-                if (connectivity & RIGHT_DOWN)
-                   label = min(label, label_tile_im[tile_row + 1][tile_col + 1]);
-                if (connectivity & RIGHT)
-                   label = min(label, label_tile_im[tile_row][tile_col + 1]);
-                if (connectivity & RIGHT_UP)
-                   label = min(label, label_tile_im[tile_row - 1][tile_col + 1]);
-
+                label = connectivity & UP            ? min(label, label_tile_im[tile_row - 1][tile_col - 0]) : label;
+                label = connectivity & LEFT_UP       ? min(label, label_tile_im[tile_row - 1][tile_col - 1]) : label;
+                label = connectivity & LEFT          ? min(label, label_tile_im[tile_row - 0][tile_col - 1]) : label;
+                label = connectivity & LEFT_DOWN     ? min(label, label_tile_im[tile_row + 1][tile_col - 1]) : label;
+                label = connectivity & DOWN          ? min(label, label_tile_im[tile_row + 1][tile_col - 0]) : label;
+                label = connectivity & RIGHT_DOWN    ? min(label, label_tile_im[tile_row + 1][tile_col + 1]) : label;
+                label = connectivity & RIGHT         ? min(label, label_tile_im[tile_row + 0][tile_col + 1]) : label;
+                label = connectivity & RIGHT_UP      ? min(label, label_tile_im[tile_row - 1][tile_col + 1]) : label;
 #else
-                if (connectivity & UP)
-                   label = min(label, label_tile_im[tile_row - 1][tile_col]);
-                if (connectivity & LEFT)
-                   label = min(label, label_tile_im[tile_row][tile_col - 1]);
-                if (connectivity &  DOWN)
-                   label = min(label, label_tile_im[tile_row + 1][tile_col]);
-                if (connectivity & RIGHT)
-                   label = min(label, label_tile_im[tile_row][tile_col + 1]);
+                label = connectivity & UP            ? min(label, label_tile_im[tile_row - 1][tile_col - 0]) : label;
+                label = connectivity & LEFT          ? min(label, label_tile_im[tile_row - 0][tile_col - 1]) : label;
+                label = connectivity & DOWN          ? min(label, label_tile_im[tile_row + 1][tile_col - 0]) : label;
+                label = connectivity & RIGHT         ? min(label, label_tile_im[tile_row + 0][tile_col + 1]) : label;
 #endif
 
                 new_labels[i][j] = label;
