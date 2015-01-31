@@ -107,7 +107,7 @@ __constant const uint RIGHT_DOWN = (1<<7);
 //global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void make_connectivity_image(
-    uint im_rows, uint im_cols, __global PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+    uint im_rows, uint im_cols, __global const PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
     const uint tile_col_blocksize = get_local_size(0);
     const uint tile_row_blocksize = get_local_size(1);
@@ -188,7 +188,7 @@ __kernel void make_connectivity_image(
 
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void label_tiles(
-    uint im_rows, uint im_cols, __global ConnectivityPixelT *labelim_p, uint labelim_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+    uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch, __global const ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
     const uint tile_col_start = get_group_id(0) * TILE_COLS;
     const uint tile_row_start = get_group_id(1) * TILE_ROWS;
