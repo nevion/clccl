@@ -240,7 +240,6 @@ __kernel void label_tiles(
             for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
                 const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
                 const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
-
                 old_labels[i][j] = new_labels[i][j];
                 label_tile_im[tile_row][tile_col] = new_labels[i][j];
             }
