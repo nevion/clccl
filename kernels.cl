@@ -376,7 +376,8 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
     const uint y = get_global_id(1);
 
     if((x < im_cols) & (y < im_rows)){
-        pixel_at(LabelT, labelim, y, x) = find_root_global(labelim_p, labelim_pitch, pixel_at(LabelT, labelim, y, x), im_rows, im_cols);
+        LabelT label = pixel_at(LabelT, labelim, y, x);
+        pixel_at(LabelT, labelim, y, x) = find_root_global(labelim_p, labelim_pitch, label, im_rows, im_cols);
     }
 }
 
