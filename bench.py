@@ -12,7 +12,6 @@ wg_size = default_wg_size
 img = frame.astype(pixel_dtype)
 
 h,w = img.shape
-#yawsa at tiled_ROWSxCOLSxKSIZE w/ 4x12 tiles @ k=5 -> 1.6 ms
 ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, True, wg_size)
 ccl.compile()
 
