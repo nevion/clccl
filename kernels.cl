@@ -58,16 +58,14 @@ typedef LDSCONNECTIVITYPIXELT LDSConnectivityPixelT;
 #define TILE_COLS (WORKGROUP_TILE_SIZE_X * WORKITEM_REPEAT_X)
 #define TILE_ROWS (WORKGROUP_TILE_SIZE_Y * WORKITEM_REPEAT_Y)
 
-enum ConnectivityEnum {
-    UP = (1<<0),
-    LEFT = (1<<1),
-    DOWN = (1<<2),
-    RIGHT = (1<<3),
-    LEFT_UP = (1<<4),
-    LEFT_DOWN = (1<<5),
-    RIGHT_UP = (1<<6),
-    RIGHT_DOWN = (1<<7)
-};
+__constant const uint UP = (1<<0);
+__constant const uint LEFT = (1<<1);
+__constant const uint DOWN = (1<<2);
+__constant const uint RIGHT = (1<<3);
+__constant const uint LEFT_UP = (1<<4);
+__constant const uint LEFT_DOWN = (1<<5);
+__constant const uint RIGHT_UP = (1<<6);
+__constant const uint RIGHT_DOWN = (1<<7);
 
 #define isConnected(p1, p2) ((p1) == (p2))
 
