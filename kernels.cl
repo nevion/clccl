@@ -453,11 +453,15 @@ __kernel void merge_tiles(
 
     const uint total = tasksH + tasksV;
 
-    __local uint changed;
     uint pchanged;
     do{
-        pchanged = false;
         __local uint changed;
+        if(tid == 0){
+            changed = 0;
+        }
+        lds_barrier();
+
+        pchanged = 0;
         for(uint taskIdx = tid; taskIdx < total; taskIdx += nwork_elements){
             if(taskIdx < tasksH){
                 const uint indexH = taskIdx;
@@ -472,7 +476,7 @@ __kernel void merge_tiles(
                 if(e & UP){
                     const LabelT lc = pixel_at(LabelT, labelim, y, x);
                     const LabelT lu = pixel_at(LabelT, labelim, y - 1, x);
-                    merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu, &pchanged);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
                 }
             }else{
                 const uint indexV = taskIdx - tasksH;
@@ -482,19 +486,19 @@ __kernel void merge_tiles(
 
                 const uint x = xbegin + (col + 1) * tile_cols;
                 const uint y = ybegin + row;
+                const LabelT lc = pixel_at(LabelT, labelim, y, x);
 
                 const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, y, x);
                 if(e & LEFT){
-                    const LabelT lc = pixel_at(LabelT, labelim, y, x);
                     const LabelT lu = pixel_at(LabelT, labelim, y, x - 1);
-                    merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu, &pchanged);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
                 }
             }
         }
         atomic_add(&changed, pchanged);
         lds_barrier();
         pchanged = changed;
-    }while(pchanged);
+    }while(pchanged > 0);
 }
 
 #if 0
