@@ -76,6 +76,22 @@ def load_tests(loader, tests, pattern):
 
                         N_ref, cc_tile_ref = cv2.connectedComponents(im_tile)
                         np.testing.assert_array_equal(relabeled_labelim_tile, cc_tile_ref)
+            def test_ccl_agreement(self):
+                ccl = self.ccl
+                cl_img = ccl.make_input_buffer(queue)
+                img = self.img
+                event = cl.enqueue_copy(queue, cl_img.data, img)
+                event, N_d, labelim_d, labelim_i_d, prefix_sums_d = ccl(queue, cl_img, wait_for=[event])
+                event.wait()
+                N = N_d.get()
+                labelim = labelim_d.get()
+                labelim_i = labelim_i_d.get()
+                prefix_sums = prefix_sums_d.get()
+                N_ref, cc_ref = cv2.connectedComponents(img.astype(np.uint8))
+
+                np.testing.assert_array_equal(labelim, cc_ref)
+                self.assertEqual(N, N_ref)
+
 
         return CCLTests
 
@@ -83,9 +99,10 @@ def load_tests(loader, tests, pattern):
     #pixel, label, connectivity
     dtype_configs = [
         (np.uint32, np.uint32, np.uint32),
+        (np.uint16, np.uint32, np.uint32),
     ]
     dtype_configs = [[np.dtype(x) for x in dtypes] for dtypes in dtype_configs]
-    methods = 'labeled_tiles',
+    methods = 'labeled_tiles', 'ccl_agreement'
 
     for (pixel_dtype, label_dtype, connectivity_dtype) in dtype_configs:
         img = frame.astype(pixel_dtype)
