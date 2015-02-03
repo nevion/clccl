@@ -682,16 +682,16 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
     const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
     const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
 
-    const uint start_bin = nblocks_to_left * block_size;
-    const uint end_bin_ = start_bin + n_wg_blocks * block_size;//block aligned end
+    const uint start_index = nblocks_to_left * block_size;
+    const uint end_index_ = start_index + n_wg_blocks * block_size;//block aligned end
 
     const uint inter_block_sum = intra_wg_block_sums_p[array_wg_id];
-    for(uint array_index = get_local_id(0) + start_bin; array_index < end_bin_; array_index += wg_size){
-        if(array_index < array_length){
-            const uint g_r = array_index / im_cols;
-            const uint g_c = array_index % im_cols;
-            image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, g_r, g_c) += inter_block_sum;
             //note we could save a honest chunk of time by putting the relabeling here
+    for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
+        if(linear_index < array_length){
+            const uint r = linear_index / im_cols;
+            const uint c = linear_index % im_cols;
+            image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) += inter_block_sum;
         }
     }
 }
