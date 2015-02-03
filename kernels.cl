@@ -687,7 +687,6 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
     const uint end_index_ = start_index + n_wg_blocks * block_size;//block aligned end
 
     const uint inter_block_sum = intra_wg_block_sums_p[array_wg_id];
-            //note we could save a honest chunk of time by putting the relabeling here
     for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
         if(linear_index < array_length){
             const uint r = linear_index / im_cols;
