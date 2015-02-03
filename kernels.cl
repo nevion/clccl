@@ -478,6 +478,16 @@ __kernel void merge_tiles(
                     const LabelT lu = pixel_at(LabelT, labelim, y - 1, x);
                     pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
                 }
+#if CONNECTIVITY == 8
+                if(e & LEFT_UP){
+                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x - 1);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
+                }
+                if(e & RIGHT_UP){
+                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x + 1);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
+                }
+#endif
             }else{
                 const uint indexV = taskIdx - tasksH;
 
@@ -493,6 +503,16 @@ __kernel void merge_tiles(
                     const LabelT lu = pixel_at(LabelT, labelim, y, x - 1);
                     pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
                 }
+#if CONNECTIVITY == 8
+                if(e & LEFT_UP){
+                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x - 1);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
+                }
+                if(e & LEFT_DOWN){
+                    const LabelT lu = pixel_at(LabelT, labelim, y + 1, x - 1);
+                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
+                }
+#endif
             }
         }
         atomic_add(&changed, pchanged);
