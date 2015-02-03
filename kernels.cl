@@ -422,7 +422,7 @@ __kernel void merge_tiles(
     const uint nwork_elements = get_local_size(1) * get_local_size(0);
 
     const uint ybegin = get_group_id(1) * (n_vert_tiles * tile_rows);
-    uint yend   = ybegin + n_vert_tiles * tile_rows;
+    uint yend = ybegin + n_vert_tiles * tile_rows;
 
     if(get_group_id(1) == ngroups_y - 1){
         yend -= yIncomplete * tile_rows;
