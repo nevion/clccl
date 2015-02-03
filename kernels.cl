@@ -664,9 +664,10 @@ __kernel void make_intra_wg_block_global_sums(
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
-        const uint im_rows, const uint im_cols,
-        __global const uint * restrict intra_wg_block_sums_p,
-        __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch //input -> partial/local prefix sums, output: global prefix sums
+    const uint im_rows, const uint im_cols,
+    __global const uint * restrict intra_wg_block_sums_p,
+    __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch,
+    __global LabelT* label_count_p
 ){
     const uint array_length = im_rows * im_cols;
     const uint n_arrays = get_num_groups(1);
@@ -691,7 +692,11 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
         if(linear_index < array_length){
             const uint r = linear_index / im_cols;
             const uint c = linear_index % im_cols;
-            image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) += inter_block_sum;
+            const uint count = image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) + inter_block_sum;
+            if(linear_index == array_length - 1){
+                *label_count_p = count + 2;//include BG and count shift
+            }
+            image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) = count;
         }
     }
 }
