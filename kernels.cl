@@ -388,22 +388,22 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
 }
 
 inline
-void merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, const LabelT l1, const LabelT l2, uint *changed){
+uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, const LabelT l1, const LabelT l2){
     const LabelT r1 = find_root_global(labelim_p, labelim_pitch, l1, im_rows, im_cols);
     const LabelT r2 = find_root_global(labelim_p, labelim_pitch, l2, im_rows, im_cols);
 
     if(r1 == r2){
-        return;
+        return 0;
     }
 
     const LabelT mi = min(r1, r2);
     const LabelT ma = max(r1, r2);
 
-    const uint y = ma / im_cols;
-    const uint x = ma % im_cols;
+    const uint ma_y = ma / im_cols;
+    const uint ma_x = ma % im_cols;
 
-    atomic_min(&pixel_at(LabelT, labelim, y, x), mi);
-    *changed = true;
+    atomic_min(&pixel_at(LabelT, labelim, ma_y, ma_x), mi);
+    return 1;
 }
 
 //merge along the adjacent pixels in the grid formed on the image with the following tiles
