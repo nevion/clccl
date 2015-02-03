@@ -12,7 +12,7 @@ wg_size = default_wg_size
 img = frame.astype(pixel_dtype)
 
 h,w = img.shape
-ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, True, wg_size)
+ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, False, wg_size)
 ccl.compile()
 
 cl_src_img = ccl.make_input_buffer(queue)
@@ -40,8 +40,8 @@ print 'compiled'
 upload().wait()
 print 'uploaded'
 
-#iters = 100*15
-iters = 3
+iters = 100*5
+#iters = 1
 times = np.zeros((iters, 2), np.double)
 loop_start = time.clock()
 for x in range(iters):
