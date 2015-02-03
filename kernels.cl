@@ -471,10 +471,10 @@ __kernel void merge_tiles(
 
                 const uint y = ybegin + (row + 1) * tile_rows;
                 const uint x = xbegin + col;
+                const LabelT lc = pixel_at(LabelT, labelim, y, x);
 
                 const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, y, x);
                 if(e & UP){
-                    const LabelT lc = pixel_at(LabelT, labelim, y, x);
                     const LabelT lu = pixel_at(LabelT, labelim, y - 1, x);
                     pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
                 }
