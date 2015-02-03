@@ -179,6 +179,5 @@ class CCL(object):
             merge_tile_size_rc = merge_tile_size_rc[0] * merge_tiles_rc[0], merge_tile_size_rc[1] * merge_tiles_rc[1]
 
         event, = self.compact_paths(queue, labelim, wait_for = [event])
-        return event, labelim_result
         event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
         event, relabel_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
