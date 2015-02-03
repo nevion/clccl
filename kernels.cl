@@ -583,7 +583,7 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
         if(linear_index < array_length){
             const PixelT pixel = pixel_at(PixelT, image, r, c);
             const LabelT label = pixel_at(LabelT, labelim, r, c);
-            count = (pixel != BG_VALUE) & (label == linear_index);
+            count = (pixel != BG_VALUE) & (label == linear_index) ? 1 : 0;
         }
 
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
