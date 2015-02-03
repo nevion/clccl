@@ -718,8 +718,7 @@ __kernel void relabel_with_scanline_order(
             const LabelT label = pixel_at(LabelT, labelim, r, c);
             const uint label_r = label / im_cols;
             const uint label_c = label % im_cols;
-            const uint scan_id = pixel_at(uint, scanline_prefix_sum_of_root_classes, label_r, label_c);
-            final_label = scan_id + 1;
+            final_label = pixel_at(uint, scanline_prefix_sum_of_root_classes, label_r, label_c) + 1;
         }
         pixel_at(LabelT, labelim_out, r, c) = final_label;
     }
