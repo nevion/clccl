@@ -419,7 +419,7 @@ __kernel void merge_tiles(
     const uint ngroups_y = get_num_groups(1);
 
     const uint tid = get_local_linear_id();
-    const uint stride = get_local_size(1) * get_local_size(0);
+    const uint nwork_elements = get_local_size(1) * get_local_size(0);
 
     const uint ybegin = get_group_id(1) * (n_vert_tiles * tile_rows);
     uint yend   = ybegin + n_vert_tiles * tile_rows;
@@ -457,7 +457,8 @@ __kernel void merge_tiles(
     uint pchanged;
     do{
         pchanged = false;
-        for(uint taskIdx = tid; taskIdx < total; taskIdx += stride){
+        __local uint changed;
+        for(uint taskIdx = tid; taskIdx < total; taskIdx += nwork_elements){
             if(taskIdx < tasksH){
                 const uint indexH = taskIdx;
 
