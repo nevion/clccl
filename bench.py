@@ -57,7 +57,7 @@ loop_avg = (loop_total / iters)*1e3
 #print timeit.timeit(lambda: core_loop().wait(), number=iters)*1e3/iters
 timings = np.squeeze(np.diff(times, axis=1))*1e3
 print timings
-print 'loop avg: %r'%(loop_avg,)
+print 'loop avg: %r best: %r'%(loop_avg, timings.min())
 
 print 'download'
 download().wait()
