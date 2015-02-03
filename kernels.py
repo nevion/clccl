@@ -136,14 +136,16 @@ class CCL(object):
             intra_wg_block_sums.data, uint32(n_block_sums),
             wait_for=[event]
         )
+        label_count = clarray.empty(queue, (1,), self.label_dtype)
         event = self._make_prefix_sums_with_intra_wg_block_global_sums(queue, (compute_units * wg_size,), (wg_size,),
             uint32(rows), uint32(cols),
             intra_wg_block_sums.data,
             prefix_sums.data, uint32(prefix_sums.strides[0]),
+            label_count.data,
             wait_for=[event]
         )
 
-        return event, prefix_sums
+        return event, label_count, prefix_sums
 
     def relabel_with_scanline_order(self, queue, image, labelim, label_root_class_psumim, wait_for = None):
         labelim_result = clarray.empty(queue, tuple(self.img_size), self.label_dtype)
@@ -177,6 +179,6 @@ class CCL(object):
             merge_tile_size_rc = merge_tile_size_rc[0] * merge_tiles_rc[0], merge_tile_size_rc[1] * merge_tiles_rc[1]
 
         event, = self.compact_paths(queue, labelim, wait_for = [event])
-        event, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
-        event, labelim_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
         return event, labelim_result
+        event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
+        event, relabel_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
