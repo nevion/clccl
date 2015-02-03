@@ -19,7 +19,7 @@ class CCL(object):
         self.TILE_ROWS = self.WORKGROUP_TILE_SIZE_Y * self.WORKITEM_REPEAT_Y
         self.TILE_COLS = self.WORKGROUP_TILE_SIZE_X * self.WORKITEM_REPEAT_X
         self.COMPACT_TILE_ROWS = 32
-        self.COMPACT_TILE_COLS = 8
+        self.COMPACT_TILE_COLS = 2
 
     def make_input_buffer(self, queue):
         return clarray.empty(queue, tuple(self.img_size), dtype=self.img_dtype)
