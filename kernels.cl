@@ -103,7 +103,7 @@ __constant const uint RIGHT_DOWN = (1<<7);
 //    }
 //}
 
-#define apron_pixel(apron, t_r, t_c) apron[(t_r+ 1)][(t_c + 1)]
+#define apron_pixel(apron, _t_r, _t_c) apron[(_t_r+ 1)][(_t_c + 1)]
 //global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void make_connectivity_image(
@@ -148,28 +148,30 @@ __kernel void make_connectivity_image(
     for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
         #pragma unroll
         for (int j = 0; j < WORKITEM_REPEAT_X; ++j){
-            const uint c = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
-            const uint r = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
-            PixelT pixel = apron_pixel(im_tile, r, c);
+            const uint t_c = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
+            const uint t_r = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
+            const uint c = t_c + tile_col_start;
+            const uint r = t_r + tile_row_start;
+            PixelT pixel = apron_pixel(im_tile, t_r, t_c);
             ConnectivityPixelT connectivity = 0;
 
 #if CONNECTIVITY == 8
-            connectivity |= c > 0 && r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c - 1)) ? LEFT_UP : 0;
-            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, r  , c - 1)) ? LEFT : 0;
-            connectivity |= c > 0 && r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c - 1)) ? LEFT_DOWN : 0;
-            connectivity |=          r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c    )) ? DOWN : 0;
-            connectivity |= c < tile_cols - 1 && r < tile_rows - 1 && isConnected(pixel, apron_pixel(im_tile, r+1, c + 1)) ? RIGHT_DOWN : 0;
-            connectivity |= c < tile_cols - 1                      && isConnected(pixel, apron_pixel(im_tile, r  , c + 1)) ? RIGHT : 0;
-            connectivity |= c < tile_cols - 1 && r > 0             && isConnected(pixel, apron_pixel(im_tile, r-1, c + 1)) ? RIGHT_UP : 0;
-            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c    )) ? UP : 0;
+            connectivity |= c > 0 && r > 0                         && isConnected(pixel, apron_pixel(im_tile, t_r-1, t_c - 1)) ? LEFT_UP : 0;
+            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, t_r  , t_c - 1)) ? LEFT : 0;
+            connectivity |= c > 0 && r < im_rows - 1               && isConnected(pixel, apron_pixel(im_tile, t_r+1, t_c - 1)) ? LEFT_DOWN : 0;
+            connectivity |=          r < im_rows - 1               && isConnected(pixel, apron_pixel(im_tile, t_r+1, t_c    )) ? DOWN : 0;
+            connectivity |= c < im_cols - 1 && r < im_rows - 1     && isConnected(pixel, apron_pixel(im_tile, t_r+1, t_c + 1)) ? RIGHT_DOWN : 0;
+            connectivity |= c < im_cols - 1                        && isConnected(pixel, apron_pixel(im_tile, t_r  , t_c + 1)) ? RIGHT : 0;
+            connectivity |= c < im_cols - 1 && r > 0               && isConnected(pixel, apron_pixel(im_tile, t_r-1, t_c + 1)) ? RIGHT_UP : 0;
+            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, t_r-1, t_c    )) ? UP : 0;
 #else
-            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, r  , c - 1)) ? LEFT : 0;
-            connectivity |=          r < tile_rows - 1             && isConnected(pixel, apron_pixel(im_tile, r+1, c    )) ? DOWN : 0;
-            connectivity |= c < tile_cols - 1                      && isConnected(pixel, apron_pixel(im_tile, r  , c + 1)) ? RIGHT : 0;
-            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, r-1, c    )) ? UP : 0;
+            connectivity |= c > 0                                  && isConnected(pixel, apron_pixel(im_tile, t_r  , t_c - 1)) ? LEFT : 0;
+            connectivity |=          r < im_rows - 1               && isConnected(pixel, apron_pixel(im_tile, t_r+1, t_c    )) ? DOWN : 0;
+            connectivity |= c < im_cols - 1                        && isConnected(pixel, apron_pixel(im_tile, t_r  , t_c + 1)) ? RIGHT : 0;
+            connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, t_r-1, t_c    )) ? UP : 0;
 #endif
-            connectivity = (c < tile_cols) & (r < tile_rows) ? connectivity : 0;
-            connectivity_tile[r][c] = connectivity;
+            connectivity = (c < im_cols) & (r < im_rows) ? connectivity : 0;
+            connectivity_tile[t_r][t_c] = connectivity;
         }
     }
     lds_barrier();
