@@ -181,7 +181,7 @@ class CCL(object):
         )
         return event, dcountim
 
-    def __call__(self, queue, cl_img, wait_for = None):
+    def __call__(self, queue, cl_img, wait_for = None, all_outputs = False):
         event, connectivityim = self.make_connectivity_image(queue, cl_img, wait_for=wait_for)
         event, labelim = self.label_tiles(queue, connectivityim, wait_for = [event])
 
@@ -198,4 +198,7 @@ class CCL(object):
         event, = self.compact_paths(queue, labelim, wait_for = [event])
         event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
         event, relabel_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
-        return event, label_count, relabel_result, labelim, prefix_sums
+        if all_outputs:
+            return event, label_count, relabel_result, labelim, prefix_sums, connectivityim
+        else:
+            return event, label_count, relabel_result
