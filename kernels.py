@@ -45,6 +45,7 @@ class CCL(object):
         self._merge_tiles                                           = self.program.merge_tiles
         #self._mark_root_classes                                     = self.program.mark_root_classes
         self._relabel_with_scanline_order                           = self.program.relabel_with_scanline_order
+        self._count_invalid_labels                                  = self.program.count_invalid_labels
         self._mark_roots_and_make_intra_wg_block_local_prefix_sums  = self.program.mark_roots_and_make_intra_wg_block_local_prefix_sums
         self._make_intra_wg_block_global_sums                       = self.program.make_intra_wg_block_global_sums
         self._make_prefix_sums_with_intra_wg_block_global_sums      = self.program.make_prefix_sums_with_intra_wg_block_global_sums
@@ -163,6 +164,22 @@ class CCL(object):
             wait_for = wait_for
         )
         return event, labelim_result
+
+    def count_invalid_labels(self, queue, labelim, connectivityim, wait_for = None):
+        dcountim = clarray.empty(queue, tuple(self.img_size), uint32)
+        ldims = self.COMPACT_TILE_COLS, self.COMPACT_TILE_ROWS
+        rows, cols = int(self.img_size[0]), int(self.img_size[1])
+        r_blocks, c_blocks = divUp(rows, ldims[1]), divUp(cols, ldims[0])
+        gdims = (c_blocks * ldims[0], r_blocks * ldims[1])
+        event = self._count_invalid_labels(queue,
+            gdims, ldims,
+            uint32(rows), uint32(cols),
+            labelim.data, uint32(labelim.strides[0]),
+            connectivityim.data, uint32(connectivityim.strides[0]),
+            dcountim.data, uint32(dcountim.strides[0]),
+            wait_for = wait_for
+        )
+        return event, dcountim
 
     def __call__(self, queue, cl_img, wait_for = None):
         event, connectivityim = self.make_connectivity_image(queue, cl_img, wait_for=wait_for)
