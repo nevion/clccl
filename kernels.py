@@ -181,3 +181,4 @@ class CCL(object):
         event, = self.compact_paths(queue, labelim, wait_for = [event])
         event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
         event, relabel_result = self.relabel_with_scanline_order(queue, cl_img, labelim, prefix_sums, wait_for = [event])
+        return event, label_count, relabel_result, labelim, prefix_sums
