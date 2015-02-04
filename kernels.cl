@@ -652,7 +652,7 @@ __kernel void make_intra_wg_block_global_sums(
         intra_wg_block_offset = clc_work_group_broadcast1_uint(intra_wg_block_offset, wg_size - 1, &value);
 #endif
 
-        if(get_local_id(0) == 0){
+        if(get_local_id(0) == wg_size-1){
             intra_wg_block_sums[0] = intra_wg_block_sums[wg_size];
         }
         lds_barrier();
