@@ -725,3 +725,31 @@ __kernel void relabel_with_scanline_order(
         pixel_at(LabelT, labelim_out, r, c) = final_label;
     }
 }
+
+__kernel void count_invalid_labels(
+    uint im_rows, uint im_cols,
+    __global const LabelT* labelim_p, const uint labelim_pitch,
+    __global const ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
+    __global const uint *dcountim_p, const uint dcountim_pitch
+){
+    const uint c = get_global_id(0);
+    const uint r = get_global_id(1);
+    const bool valid_pixel_task = (c < im_cols) & (r < im_rows);
+
+    if(valid_pixel_task){
+        const ConnectivityPixelT connectivity = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+        const LabelT label = pixel_at(LabelT, labelim, r, c);
+        uint dcount = 0;
+
+        dcount += connectivity & UP         ? label != pixel_at(LabelT, labelim, r - 1, c - 0) : 0;
+        dcount += connectivity & LEFT_UP    ? label != pixel_at(LabelT, labelim, r - 1, c - 1) : 0;
+        dcount += connectivity & LEFT       ? label != pixel_at(LabelT, labelim, r - 0, c - 1) : 0;
+        dcount += connectivity & LEFT_DOWN  ? label != pixel_at(LabelT, labelim, r + 1, c - 1) : 0;
+        dcount += connectivity & DOWN       ? label != pixel_at(LabelT, labelim, r + 1, c - 0) : 0;
+        dcount += connectivity & RIGHT_DOWN ? label != pixel_at(LabelT, labelim, r + 1, c + 1) : 0;
+        dcount += connectivity & RIGHT      ? label != pixel_at(LabelT, labelim, r + 0, c + 1) : 0;
+        dcount += connectivity & RIGHT_UP   ? label != pixel_at(LabelT, labelim, r - 1, c + 1) : 0;
+
+        pixel_at(uint, dcountim, r, c) = dcount;
+    }
+}
