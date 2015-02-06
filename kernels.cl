@@ -410,8 +410,6 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 
 //ncalls: logUp(ntiles, nway_merge)
 //group size: k, 1: k can be anything
-//ncalls: logUp(ntiles, nway_merge)
-//group size: k, 1: k can be anything
 //gdims: roundUpToMultiple(im_cols, k), nmerges : nmerges = ntiles // (nway_merge * block_size)
 //block_size: nway_merge^(call_index) for call_index=[0, ncalls): 1<=block_size<=nway_merge^(logUp(nhorz_tiles, nway_merge)-1)
 //a horizontal merge spanning vertically in cols
@@ -531,121 +529,6 @@ __kernel void merge_tiles(
         lds_barrier();
         pchanged = changed;
     }while(pchanged);
-}
-
-//merge along the adjacent pixels in the grid formed on the image with the following tiles
-__kernel void merge_tiles(
-    const uint im_rows, const uint im_cols,
-    const uint n_vert_tiles, const uint n_horz_tiles,
-    uint tile_rows, uint tile_cols,
-    const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
-    __global LabelT *labelim_p, const uint labelim_pitch,
-    const uint yIncomplete, uint xIncomplete
-){
-    const uint ngroups_x = get_num_groups(0);
-    const uint ngroups_y = get_num_groups(1);
-
-    const uint tid = get_local_linear_id();
-    const uint nwork_elements = get_local_size(1) * get_local_size(0);
-
-    const uint ybegin = get_group_id(1) * (n_vert_tiles * tile_rows);
-    uint yend = ybegin + n_vert_tiles * tile_rows;
-
-    if(get_group_id(1) == ngroups_y - 1){
-        yend -= yIncomplete * tile_rows;
-        yend -= tile_rows;
-        tile_rows = (im_rows % tile_rows);
-
-        yend += tile_rows;
-    }
-
-    const uint xbegin = get_group_id(0) * n_horz_tiles * tile_cols;
-    uint xend = xbegin + n_horz_tiles * tile_cols;
-
-    if(get_group_id(0) == ngroups_x - 1){
-        if (xIncomplete) yend = ybegin;
-        xend -= xIncomplete * tile_cols;
-        xend -= tile_cols;
-        tile_cols = (im_cols % tile_cols);
-
-        xend += tile_cols;
-    }
-
-    if(get_group_id(1) == (ngroups_y - 1) && yIncomplete){
-        xend = xbegin;
-    }
-
-    const uint tasksV = (n_horz_tiles - 1) * (yend - ybegin);
-    const uint tasksH = (n_vert_tiles - 1) * (xend - xbegin);
-
-    const uint total = tasksH + tasksV;
-
-    uint pchanged;
-    do{
-        __local uint changed;
-        if(tid == 0){
-            changed = 0;
-        }
-        lds_barrier();
-
-        pchanged = 0;
-        for(uint taskIdx = tid; taskIdx < total; taskIdx += nwork_elements){
-            if(taskIdx < tasksH){
-                const uint indexH = taskIdx;
-
-                const uint row = indexH / (xend - xbegin);
-                const uint col = indexH % (xend - xbegin);
-
-                const uint y = ybegin + (row + 1) * tile_rows;
-                const uint x = xbegin + col;
-                const LabelT lc = pixel_at(LabelT, labelim, y, x);
-
-                const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, y, x);
-                if(e & UP){
-                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-#if CONNECTIVITY == 8
-                if(e & LEFT_UP){
-                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x - 1);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-                if(e & RIGHT_UP){
-                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x + 1);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-#endif
-            }else{
-                const uint indexV = taskIdx - tasksH;
-
-                const uint col = indexV / (yend - ybegin);
-                const uint row = indexV % (yend - ybegin);
-
-                const uint x = xbegin + (col + 1) * tile_cols;
-                const uint y = ybegin + row;
-                const LabelT lc = pixel_at(LabelT, labelim, y, x);
-
-                const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, y, x);
-                if(e & LEFT){
-                    const LabelT lu = pixel_at(LabelT, labelim, y, x - 1);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-#if CONNECTIVITY == 8
-                if(e & LEFT_UP){
-                    const LabelT lu = pixel_at(LabelT, labelim, y - 1, x - 1);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-                if(e & LEFT_DOWN){
-                    const LabelT lu = pixel_at(LabelT, labelim, y + 1, x - 1);
-                    pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, lc, lu);
-                }
-#endif
-            }
-        }
-        atomic_add(&changed, pchanged);
-        lds_barrier();
-        pchanged = changed;
-    }while(pchanged > 0);
 }
 
 #if 0
