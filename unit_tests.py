@@ -7,7 +7,10 @@ from kernel_common import *
 from kernels import *
 import cv2
 
-frame = imread('spiralc-2044.png')
+filename = 'spiralc-2044.png'
+if __name__ != '__main__':
+    frame = imread(filename)
+debug = False
 
 def load_tests(loader, tests, pattern):
     def make_class(cls_img_dtype, cls_label_dtype, cls_connectivity_dtype, cls_img):
@@ -25,7 +28,7 @@ def load_tests(loader, tests, pattern):
             def setUpClass():
                 cls = CCLTests
                 img_dtype = cls.img_dtype
-                CCLTests.ccl = CCL(cls.img.shape, cls.img_dtype, cls.label_dtype, cls.connectivity_dtype, debug=False)
+                CCLTests.ccl = CCL(cls.img.shape, cls.img_dtype, cls.label_dtype, cls.connectivity_dtype, debug=debug)
                 CCLTests.ccl.compile()
 
             def test_connectivity_image(self):
@@ -121,3 +124,21 @@ def load_tests(loader, tests, pattern):
         for method in methods:
             suite.addTest(CCLTestCaseClass('test_'+method))
     return suite
+
+if __name__ == '__main__':
+    import argparse, sys
+    parser = argparse.ArgumentParser()
+    parser.add_argument('filename', default=filename)
+    parser.add_argument('--debug', action='store_true', default=debug)
+    parser.add_argument('unittest_args', nargs='*')
+
+    args = parser.parse_args()
+    filename = args.filename
+    frame = imread(filename)
+    debug = args.debug
+
+    # Now set the sys.argv to the unittest_args (leaving sys.argv[0] alone)
+    sys.argv[1:] = args.unittest_args
+    unittest.main()
+
+
