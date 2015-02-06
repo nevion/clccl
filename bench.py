@@ -28,7 +28,7 @@ def download(wait_for = None):
 
 def core_loop(wait_for = None):
     global cl_dst_img
-    event, cl_dst_img = ccl(queue, cl_src_img, wait_for=wait_for)
+    event, count, cl_dst_img = ccl(queue, cl_src_img, wait_for=wait_for)
     return event
 
 def full_loop():
