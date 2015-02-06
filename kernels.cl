@@ -695,7 +695,7 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
             const uint c = linear_index % im_cols;
             const uint count = image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) + inter_block_sum;
             if(linear_index == array_length - 1){
-                *label_count_p = count + 2;//include BG and count shift
+                *label_count_p = count + 1;//include BG
             }
             image_pixel_at(uint, array_of_prefix_sums_p, im_rows, im_cols, array_of_prefix_sums_pitch, r, c) = count;
         }
