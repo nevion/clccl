@@ -111,9 +111,8 @@ class CCL(object):
         horz_index = 0
         ldims = self.best_wg_size,
 
-        wait_list = wait_for
+        event = None
         while iteration < iterations:
-            next_wait_list = []
             nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] < rows else 0
             nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] < cols else 0
             n_merge_tasks = 0
@@ -137,9 +136,9 @@ class CCL(object):
                 uint32(nvert_merges), uint32(nhorz_merges),
                 connectivityim.data, uint32(connectivityim.strides[0]),
                 labelim.data, uint32(labelim.strides[0]),
-                wait_for = wait_list
+                wait_for = wait_for
             )
-            next_wait_list.append(event)
+            wait_for = [event]
 
             if vert_index <= nvert_iterations:
                 vert_block_size *= nway_merge_rc[0]
@@ -149,8 +148,7 @@ class CCL(object):
             horz_index += 1
             iteration += 1
 
-            wait_list = next_wait_list
-        return wait_list
+        return event
 
     def mark_roots_and_make_prefix_sums(self, queue, image, labelim, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
@@ -162,8 +160,6 @@ class CCL(object):
         n_block_sums = nblocks//nblocks_per_wg
         intra_wg_block_sums = clarray.empty(queue, (n_block_sums,), np.uint32)
         prefix_sums = clarray.empty(queue, tuple(self.img_size), np.uint32)
-        gdims = (nblocks * wg_size, )
-        ldims = (wg_size,)
         event = self._mark_roots_and_make_intra_wg_block_local_prefix_sums(queue, (compute_units * wg_size,), (wg_size,),
             uint32(rows), uint32(cols),
             image.data, uint32(image.strides[0]),
@@ -224,15 +220,7 @@ class CCL(object):
         event, connectivityim = self.make_connectivity_image(queue, cl_img, wait_for=wait_for)
         event, labelim = self.label_tiles(queue, connectivityim, wait_for = [event])
 
-        merge_grid_rc = divUp(self.img_size[0], self.TILE_ROWS), divUp(self.img_size[1], self.TILE_COLS)
-        merge_tile_size_rc = self.TILE_ROWS, self.TILE_COLS
-        merge_tiles_rc = (2, 2)
-        merge_block_dims_cr = self.WORKGROUP_TILE_SIZE_X, self.WORKGROUP_TILE_SIZE_Y
-        while merge_grid_rc[0] > 1 or merge_grid_rc[1] > 1:
-            event, = self.merge_tiles(queue, connectivityim, labelim, merge_tiles_rc, merge_tile_size_rc, merge_grid_rc, wait_for = [event])
-
-            merge_grid_rc = divUp(merge_grid_rc[0], merge_tiles_rc[0]), divUp(merge_grid_rc[1], merge_tiles_rc[1])
-            merge_tile_size_rc = merge_tile_size_rc[0] * merge_tiles_rc[0], merge_tile_size_rc[1] * merge_tiles_rc[1]
+        event = self.merge_tiles(queue, connectivityim, labelim, wait_for = [event])
 
         event, = self.compact_paths(queue, labelim, wait_for = [event])
         event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
