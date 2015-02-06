@@ -390,8 +390,8 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
 }
 
 inline
-uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, const LabelT l1, const LabelT l2){
-    const LabelT r1 = find_root_global(labelim_p, labelim_pitch, l1, im_rows, im_cols);
+uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, LabelT *l1, const LabelT l2){
+    const LabelT r1 = find_root_global(labelim_p, labelim_pitch, *l1, im_rows, im_cols);
     const LabelT r2 = find_root_global(labelim_p, labelim_pitch, l2, im_rows, im_cols);
 
     if(r1 == r2){
