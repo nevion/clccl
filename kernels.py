@@ -1,13 +1,14 @@
 from kernel_common import *
 
 class CCL(object):
-    def __init__(self, img_size, img_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size):
+    def __init__(self, img_size, img_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size, max_cus = compute_units):
         self.img_size = img_size
         self.img_dtype = img_dtype
         self.label_dtype = label_dtype
         self.connectivity_dtype = connectivity_dtype
         self.debug = debug
         self.best_wg_size = best_wg_size
+        self.max_cus = max_cus
 
         self.img_size = np.asarray(img_size, np.uint32)
         self.program = None
@@ -115,7 +116,7 @@ class CCL(object):
 
     def mark_roots_and_make_prefix_sums(self, queue, image, labelim, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
-        compute_units = device.max_compute_units
+        compute_units = self.max_cus
         wg_size = self.best_wg_size
         n_pixels = self.img_size[0] * self.img_size[1]
         nblocks = divUp(n_pixels, wg_size)
