@@ -405,6 +405,7 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
     const uint ma_x = ma % im_cols;
 
     atomic_min(&pixel_at(LabelT, labelim, ma_y, ma_x), mi);
+    *l1 = mi;
     return 1;
 }
 
