@@ -555,7 +555,7 @@ MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
-    __global PixelT *image_p, uint image_pitch,
+    __global const PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
     __global uint * restrict array_intra_wg_block_sums_p,
     __global uint * restrict array_prefix_sum_p, const uint array_prefix_sum_pitch
