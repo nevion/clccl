@@ -572,12 +572,12 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
     const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
     const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
 
-    const uint start_bin = nblocks_to_left * block_size;
-    const uint end_bin_ = start_bin + n_wg_blocks * block_size;//block aligned end
+    const uint start_index = nblocks_to_left * block_size;
+    const uint end_index_ = start_index + n_wg_blocks * block_size;//block aligned end
 
     uint inter_block_sum = 0;
 
-    for(uint linear_index = get_local_id(0) + start_bin; linear_index < end_bin_; linear_index += wg_size){
+    for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
         const uint r = linear_index / im_cols;
         const uint c = linear_index % im_cols;
 
