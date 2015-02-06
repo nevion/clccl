@@ -97,22 +97,60 @@ class CCL(object):
         )
         return event,
 
-    def merge_tiles(self, queue, connectivityim, labelim, merge_tiles_rc, merge_tile_size_rc, grid_size_rc, wait_for = None):
+    def merge_tiles(self, queue, connectivityim, labelim, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
-        ldims = self.WORKGROUP_TILE_SIZE_X, self.WORKGROUP_TILE_SIZE_Y
-        merge_grid_rc = divUp(grid_size_rc[0], merge_tiles_rc[0]), divUp(grid_size_rc[1], merge_tiles_rc[1])
-        gdims = merge_grid_rc[1] * ldims[0], merge_grid_rc[0] * ldims[1]
-        event = self._merge_tiles(queue,
-            gdims, ldims,
-            uint32(rows), uint32(cols),
-            uint32(merge_tiles_rc[0]), uint32(merge_tiles_rc[1]),
-            uint32(merge_tile_size_rc[0]), uint32(merge_tile_size_rc[1]),
-            connectivityim.data, uint32(connectivityim.strides[0]),
-            labelim.data, uint32(labelim.strides[0]),
-            uint32(grid_size_rc[0] % merge_tiles_rc[0]), uint32(grid_size_rc[1] % merge_tiles_rc[1]),
-            wait_for = wait_for
-        )
-        return event,
+        nvert_tiles = divUp(rows, self.TILE_ROWS)
+        nhorz_tiles = divUp(cols, self.TILE_COLS)
+        nway_merge_rc = (2, 2) #span 2 along vertical and 2 along horizontal
+        vert_block_size, horz_block_size = 1, 1
+        nvert_iterations = logUp(nvert_tiles, nway_merge_rc[0])
+        nhorz_iterations = logUp(nhorz_tiles, nway_merge_rc[1])
+        iterations = max(nvert_iterations, nhorz_iterations)
+        iteration = 0
+        vert_index = 0
+        horz_index = 0
+        ldims = self.best_wg_size,
+
+        wait_list = wait_for
+        while iteration < iterations:
+            next_wait_list = []
+            nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] < rows else 0
+            nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] < cols else 0
+            n_merge_tasks = 0
+            if nvert_merges > 0 and nhorz_merges > 0:
+                n_merge_tasks = nvert_merges * nhorz_merges
+            elif nvert_merges > 0:
+                n_merge_tasks = nvert_merges
+            else: #nvert_merges = 0
+                n_merge_tasks = nhorz_merges
+
+            assert(n_merge_tasks)
+            gdims = n_merge_tasks * ldims[0],
+            #print 'nvert_merges: %d nhorz_merges: %d n_merge_tasks: %d'%(nvert_merges, nhorz_merges, n_merge_tasks)
+            #print 'vert_block_size %d horz_block_size: %r'%(vert_block_size, horz_block_size)
+
+            event = self._merge_tiles(queue,
+                gdims, ldims,
+                uint32(rows), uint32(cols),
+                uint32(vert_block_size), uint32(nway_merge_rc[0]),
+                uint32(horz_block_size), uint32(nway_merge_rc[1]),
+                uint32(nvert_merges), uint32(nhorz_merges),
+                connectivityim.data, uint32(connectivityim.strides[0]),
+                labelim.data, uint32(labelim.strides[0]),
+                wait_for = wait_list
+            )
+            next_wait_list.append(event)
+
+            if vert_index <= nvert_iterations:
+                vert_block_size *= nway_merge_rc[0]
+            if horz_index <= nhorz_iterations:
+                horz_block_size *= nway_merge_rc[1]
+            vert_index += 1
+            horz_index += 1
+            iteration += 1
+
+            wait_list = next_wait_list
+        return wait_list
 
     def mark_roots_and_make_prefix_sums(self, queue, image, labelim, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
