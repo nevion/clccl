@@ -25,7 +25,7 @@ def load_tests(loader, tests, pattern):
             def setUpClass():
                 cls = CCLTests
                 img_dtype = cls.img_dtype
-                CCLTests.ccl = CCL(cls.img.shape, cls.img_dtype, cls.label_dtype, cls.connectivity_dtype)
+                CCLTests.ccl = CCL(cls.img.shape, cls.img_dtype, cls.label_dtype, cls.connectivity_dtype, debug=False)
                 CCLTests.ccl.compile()
 
             def test_connectivity_image(self):
@@ -76,6 +76,7 @@ def load_tests(loader, tests, pattern):
 
                         N_ref, cc_tile_ref = cv2.connectedComponents(im_tile)
                         np.testing.assert_array_equal(relabeled_labelim_tile, cc_tile_ref)
+
             def test_ccl_agreement(self):
                 ccl = self.ccl
                 cl_img = ccl.make_input_buffer(queue)
