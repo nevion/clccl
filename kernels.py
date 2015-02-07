@@ -149,7 +149,7 @@ class CCL(object):
             horz_index += 1
             iteration += 1
 
-        return event
+        return event,
 
     def mark_roots_and_make_prefix_sums(self, queue, image, labelim, wait_for = None):
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
