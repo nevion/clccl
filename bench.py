@@ -46,13 +46,13 @@ print 'uploaded'
 iters = 100*5
 #iters = 1
 times = np.zeros((iters, 2), np.double)
-loop_start = time.clock()
+loop_start = time.time()
 for x in range(iters):
-    start = time.clock()
+    start = time.time()
     core_loop().wait()
-    end = time.clock()
+    end = time.time()
     times[x, :] = start, end
-loop_end = time.clock()
+loop_end = time.time()
 loop_total = loop_end - loop_start
 loop_avg = (loop_total / iters)*1e3
 #import timeit
@@ -60,7 +60,7 @@ loop_avg = (loop_total / iters)*1e3
 #print timeit.timeit(lambda: core_loop().wait(), number=iters)*1e3/iters
 timings = np.squeeze(np.diff(times, axis=1))*1e3
 print timings
-print 'loop avg: %r best: %r'%(loop_avg, timings.min())
+print 'total: %r loop avg: %r best: %r iterations: %d std: %r'%(loop_total, loop_avg, timings.min(), iters, np.std(timings))
 
 print 'download'
 download().wait()
