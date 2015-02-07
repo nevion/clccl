@@ -113,8 +113,8 @@ class CCL(object):
 
         event = None
         while iteration < iterations:
-            nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] < rows else 0
-            nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] < cols else 0
+            nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] <= rows else 0
+            nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] <= cols else 0
             n_merge_tasks = 0
             if nvert_merges > 0 and nhorz_merges > 0:
                 n_merge_tasks = nvert_merges * nhorz_merges
