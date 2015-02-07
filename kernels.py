@@ -141,9 +141,9 @@ class CCL(object):
             )
             wait_for = [event]
 
-            if vert_index <= nvert_iterations:
+            if vert_index < nvert_iterations:
                 vert_block_size *= nway_merge_rc[0]
-            if horz_index <= nhorz_iterations:
+            if horz_index < nhorz_iterations:
                 horz_block_size *= nway_merge_rc[1]
             vert_index += 1
             horz_index += 1
