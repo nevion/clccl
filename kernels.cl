@@ -206,8 +206,6 @@ __kernel void label_tiles(
     tile_rows = tile_row_end - tile_row_start;
     tile_cols = tile_col_end - tile_col_start;
 
-    //if (x >= im_rows || y >= im_rows) return;
-
     __local LDSLabelT label_tile_im[TILE_ROWS][TILE_COLS];
     __local LDSConnectivityPixelT  edge_tile_im[TILE_ROWS][TILE_COLS];
 
