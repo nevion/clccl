@@ -110,6 +110,7 @@ class CCL(object):
         vert_index = 0
         horz_index = 0
         ldims = self.best_wg_size,
+        #print 'tiles: (%r, %r) nvert_iterations %r nhorz_iterations %r'%(nvert_tiles, nhorz_tiles, nvert_iterations, nhorz_iterations)
 
         event = None
         while iteration < iterations:
@@ -125,7 +126,7 @@ class CCL(object):
 
             gdims = n_merge_tasks * ldims[0],
             #print 'nvert_merges: %d nhorz_merges: %d n_merge_tasks: %d'%(nvert_merges, nhorz_merges, n_merge_tasks)
-            #print 'vert_block_size %d horz_block_size: %r'%(vert_block_size, horz_block_size)
+            #print 'vert_block_size %d (%r) horz_block_size: %r (%r)'%(vert_block_size, vert_block_size * self.TILE_ROWS, horz_block_size, horz_block_size * self.TILE_COLS)
             assert(n_merge_tasks)
 
             event = self._merge_tiles(queue,
