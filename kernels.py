@@ -103,8 +103,8 @@ class CCL(object):
         nhorz_tiles = divUp(cols, self.TILE_COLS)
         nway_merge_rc = (2, 2) #span 2 along vertical and 2 along horizontal
         vert_block_size, horz_block_size = 1, 1
-        nvert_iterations = logUp(nvert_tiles, nway_merge_rc[0])
-        nhorz_iterations = logUp(nhorz_tiles, nway_merge_rc[1])
+        nvert_iterations = logDown(nvert_tiles, nway_merge_rc[0])
+        nhorz_iterations = logDown(nhorz_tiles, nway_merge_rc[1])
         iterations = max(nvert_iterations, nhorz_iterations)
         iteration = 0
         vert_index = 0
