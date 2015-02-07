@@ -221,7 +221,7 @@ class CCL(object):
         event, connectivityim = self.make_connectivity_image(queue, cl_img, wait_for=wait_for)
         event, labelim = self.label_tiles(queue, connectivityim, wait_for = [event])
 
-        event = self.merge_tiles(queue, connectivityim, labelim, wait_for = [event])
+        event, = self.merge_tiles(queue, connectivityim, labelim, wait_for = [event])
 
         event, = self.compact_paths(queue, labelim, wait_for = [event])
         event, label_count, prefix_sums = self.mark_roots_and_make_prefix_sums(queue, cl_img, labelim, wait_for = [event])
