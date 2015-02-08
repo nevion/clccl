@@ -356,7 +356,7 @@ __kernel void label_tiles(
 }
 
 inline
-LabelT find_root_global(const __global LabelT *labelim_p, uint labelim_pitch, LabelT label, const uint im_rows, const uint im_cols){
+LabelT find_root_global(__global LabelT *labelim_p, uint labelim_pitch, LabelT label, const uint im_rows, const uint im_cols){
     for(;;){
         const uint y = label / im_cols;
         const uint x = label % im_cols;
@@ -370,6 +370,23 @@ LabelT find_root_global(const __global LabelT *labelim_p, uint labelim_pitch, La
 
         label = parent;
     }
+    return label;
+}
+
+inline
+LabelT find_root_global_uncached(__global LabelT *labelim_p, uint labelim_pitch, LabelT label, const uint im_rows, const uint im_cols){
+    for(;;){
+        const uint r = label / im_cols;
+        const uint c = label % im_cols;
+        assert_val(r < im_rows, r);
+        assert_val(c < im_cols, c);
+        LabelT parent = atomic_load(&pixel_at(LabelT, labelim, r, c));
+
+        if(label == parent){
+            break;
+        }
+
+        label = parent;
     }
     return label;
 }
@@ -385,23 +402,51 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
 }
 
 inline
-uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, LabelT *l1, const LabelT l2){
-    const LabelT r1 = find_root_global(labelim_p, labelim_pitch, *l1, im_rows, im_cols);
-    const LabelT r2 = find_root_global(labelim_p, labelim_pitch, l2, im_rows, im_cols);
-
+uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c){
+    LabelT l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
+    LabelT l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
+    if(l1 == l2){
+        return 0;
+    }
+    LabelT r1 = find_root_global_uncached(labelim_p, labelim_pitch, l1, im_rows, im_cols);
+    LabelT r2 = find_root_global_uncached(labelim_p, labelim_pitch, l2, im_rows, im_cols);
     if(r1 == r2){
         return 0;
     }
+    LabelT mi = min(r1, r2);
+    LabelT ma = max(r1, r2);
+    uint ret = 0;
 
-    const LabelT mi = min(r1, r2);
-    const LabelT ma = max(r1, r2);
+    for(;;){
 
-    const uint ma_y = ma / im_cols;
-    const uint ma_x = ma % im_cols;
+        //const uint mi_y = mi / im_cols;
+        //const uint mi_x = mi % im_cols;
+        const uint ma_y = ma / im_cols;
+        const uint ma_x = ma % im_cols;
 
-    atomic_min(&pixel_at(LabelT, labelim, ma_y, ma_x), mi);
-    *l1 = mi;
-    return 1;
+        __global LabelT *ma_lp = &pixel_at(LabelT, labelim, ma_y, ma_x);
+        const LabelT old_label_of_ma = atomic_min(ma_lp, mi);
+        if(old_label_of_ma >= mi){
+            //printf("merge successful with mi = %d ma = %d old_label_ma: %d\n", mi, ma, old_label_of_ma);
+            ret = old_label_of_ma == mi ? 0 : 1;
+            break;
+        }
+
+        //printf("condition detected with mi = %d ma = %d old_label_ma: %d\n", mi, ma, old_label_of_ma);
+        //else somebody snuck in and made the max label now smaller than ours! we need to now try to merge with that label
+        l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
+        l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
+
+        r1 = find_root_global_uncached(labelim_p, labelim_pitch, l1, im_rows, im_cols);
+        r2 = find_root_global_uncached(labelim_p, labelim_pitch, l2, im_rows, im_cols);
+        if(r1 == r2){
+            break;
+        }
+        mi = min(r1, r2);
+        ma = max(r1, r2);
+    }
+
+    return ret;
 }
 
 //ncalls: logUp(ntiles, nway_merge)
@@ -458,35 +503,59 @@ __kernel void merge_tiles(
             for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
                 const uint rmerge_block_index = rmerge_block_index_start + block_size_in_row_tiles * rmerge_sub_index;
                 assert_val(rmerge_sub_index < nway_merge_in_row_tiles, rmerge_sub_index);
-                const uint r = rmerge_block_index * TILE_ROWS;//the middle point to merge about
                 if((cmerge_start != cmerge_end) & (tid == 0)){
                     assert_val(r < im_rows, r);
                 }
-                //merge along the columns - ie this merges to horizontally seperated tiles
-                for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
-                    LabelT lc = pixel_at(LabelT, labelim, r, c);
-                    uint local_pchanged = 0;
+                {
+                    const uint r = rmerge_block_index * TILE_ROWS;//the middle point to merge about
+                    //merge along the columns - ie this merges to horizontally seperated tiles
+                    for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                        const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+                        uint local_pchanged = 0;
 
-                    const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
-                    if(e & UP){
-                        const LabelT lu = pixel_at(LabelT, labelim, r - 1, c);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
-                    }
-                    #if CONNECTIVITY == 8
-                    if(e & LEFT_UP){
-                        const LabelT lu = pixel_at(LabelT, labelim, r - 1, c - 1);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
-                    }
-                    if(e & RIGHT_UP){
-                        const LabelT lu = pixel_at(LabelT, labelim, r - 1, c + 1);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
-                    }
-                    #endif
-                    if(local_pchanged){
-                        atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
-                    }
+                        if(e & UP){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c);
+                        }
+                        #if CONNECTIVITY == 8
+                        if(e & LEFT_UP){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1);
+                        }
+                        if(e & RIGHT_UP){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1);
+                        }
+                        #endif
+                        //if(local_pchanged){
+                        //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
+                        //}
 
-                    pchanged += local_pchanged;
+                        pchanged += local_pchanged;
+                    }
+                }
+                //mem_fence(CLK_GLOBAL_MEM_FENCE);
+                {
+                    const uint r = rmerge_block_index * TILE_ROWS - 1;//the middle point to merge about
+                    //merge along the columns - ie this merges to horizontally seperated tiles
+                    for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                        uint local_pchanged = 0;
+
+                        const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+                        if(e & DOWN){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c);
+                        }
+                        #if CONNECTIVITY == 8
+                        if(e & LEFT_DOWN){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1);
+                        }
+                        if(e & RIGHT_DOWN){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1);
+                        }
+                        #endif
+                        //if(local_pchanged){
+                        //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
+                        //}
+
+                        pchanged += local_pchanged;
+                    }
                 }
             }
         }
@@ -497,35 +566,52 @@ __kernel void merge_tiles(
             for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
                 const uint cmerge_block_index = cmerge_block_index_start + block_size_in_col_tiles * cmerge_sub_index;
                 assert_val(cmerge_sub_index < nway_merge_in_row_tiles, cmerge_sub_index);
-                const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
                 if((rmerge_start != rmerge_end) & (tid == 0)){
                     assert_val(c < im_cols, c);
                 }
-                //merge along the rows - ie this merges to vertically seperated tiles
-                for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
-                    LabelT lc = pixel_at(LabelT, labelim, r, c);
-                    uint local_pchanged = 0;
+                {
+                    const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
+                    //merge along the rows - ie this merges to vertically seperated tiles
+                    for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                        uint local_pchanged = 0;
 
-                    const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
-                    if(e & LEFT){
-                        const LabelT lu = pixel_at(LabelT, labelim, r, c - 1);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
+                        const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+                        if(e & LEFT){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c - 1);
+                        }
+                        #if CONNECTIVITY == 8
+                        if(e & LEFT_UP){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1);
+                        }
+                        if(e & LEFT_DOWN){
+                            LabelT lu = pixel_at(LabelT, labelim, r + 1, c - 1);
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1);
+                        }
+                        #endif
+                        pchanged += local_pchanged;
                     }
-                    #if CONNECTIVITY == 8
-                    if(e & LEFT_UP){
-                        const LabelT lu = pixel_at(LabelT, labelim, r - 1, c - 1);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
-                    }
-                    if(e & LEFT_DOWN){
-                        const LabelT lu = pixel_at(LabelT, labelim, r + 1, c - 1);
-                        local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, &lc, lu);
-                    }
-                    #endif
-                    if(local_pchanged){
-                        atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
-                    }
+                }
+                {
+                    const uint c = cmerge_block_index * TILE_COLS - 1;//the middle point to merge about
+                    //merge along the rows - ie this merges to vertically seperated tiles
+                    for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                        uint local_pchanged = 0;
 
-                    pchanged += local_pchanged;
+                        const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+                        if(e & RIGHT){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c + 1);
+                        }
+                        #if CONNECTIVITY == 8
+                        if(e & RIGHT_UP){
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1);
+                        }
+                        if(e & RIGHT_DOWN){
+                            LabelT lu = pixel_at(LabelT, labelim, r + 1, c + 1);
+                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1);
+                        }
+                        #endif
+                        pchanged += local_pchanged;
+                    }
                 }
             }
         }
