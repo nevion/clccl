@@ -101,6 +101,10 @@ def load_tests(loader, tests, pattern):
                 xx, yy = np.meshgrid(np.arange(img.shape[0]), np.arange(img.shape[1]))
                 linear_index = xx + yy * img.shape[1]
                 prefix_sum_ref = inclusive_prefix_sum(((labelim_i == linear_index) & (img != 0)).ravel())
+                if not np.array_equal(labelim, cc_ref):
+                    from IPython import embed; embed()
+                self.assertEqual(dcountim_i.sum(), 0)
+                self.assertEqual(dcountim.sum(), 0)
                 np.testing.assert_equal(prefix_sum_ref, prefix_sums.ravel())
 
                 np.testing.assert_array_equal(labelim, cc_ref)
