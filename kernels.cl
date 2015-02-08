@@ -363,16 +363,13 @@ LabelT find_root_global(const __global LabelT *labelim_p, uint labelim_pitch, La
         assert_val(y < im_rows, y);
         assert_val(x < im_cols, x);
         const LabelT parent = pixel_at(LabelT, labelim, y, x);
-        //printf((__constant char *)"parent of %d (%d, %d) is %d (%d, %d)\n", label, y, x, parent, parent / im_cols, parent % im_cols);
 
         if(label == parent){
             break;
         }
 
         label = parent;
-        //if(k == kmax-1){
-        //    printf("kmax was reached in %d, %d\n", get_global_id(0), get_global_id(1));
-        //}
+    }
     }
     return label;
 }
