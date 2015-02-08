@@ -539,6 +539,90 @@ __kernel void merge_tiles(
     }while(pchanged);
 }
 
+//ncalls: logUp(ntiles, nway_merge)
+//group size: k, 1: k can be anything
+//gdims: roundUpToMultiple(im_cols, k), nmerges : nmerges = ntiles // (nway_merge * block_size)
+//block_size: nway_merge^(call_index) for call_index=[0, ncalls): 1<=block_size<=nway_merge^(logUp(nhorz_tiles, nway_merge)-1)
+//a horizontal merge spanning vertically in cols
+__kernel void post_merge_flatten(
+    const uint im_rows, const uint im_cols,
+    const uint block_size_in_row_tiles, const uint nway_merge_in_row_tiles, /*2 recommended */
+    const uint block_size_in_col_tiles, const uint nway_merge_in_col_tiles, /*2 recommended */
+    const uint nrow_tile_merges, const uint ncol_tile_merges,
+    const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
+    __global LabelT *labelim_p, const uint labelim_pitch
+){
+    size_t rmerge_job_id;
+    size_t cmerge_job_id;
+    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){
+        rmerge_job_id = get_group_id(0) / ncol_tile_merges;
+        cmerge_job_id = get_group_id(0) % ncol_tile_merges;
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
+    }else if(nrow_tile_merges > 0){//ncol_tile_merges = 0
+        rmerge_job_id = get_group_id(0);
+        cmerge_job_id = 0;
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
+    }else{//nrow_tile_merges = 0
+        rmerge_job_id = 0;
+        cmerge_job_id = get_group_id(0);
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
+    }
+
+    const size_t tid = get_local_id(0);
+    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;
+    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;
+    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;
+    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);
+    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;
+    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;
+    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
+    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
+
+    if(nrow_tile_merges){
+        assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
+        assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
+        for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
+            const uint rmerge_block_index = rmerge_block_index_start + block_size_in_row_tiles * rmerge_sub_index;
+            assert_val(rmerge_sub_index < nway_merge_in_row_tiles, rmerge_sub_index);
+            if((cmerge_start != cmerge_end) & (tid == 0)){
+                assert_val(r < im_rows, r);
+            }
+            #pragma unroll
+            for(uint i = 0; i < 2; ++i){
+                const uint r = rmerge_block_index * TILE_ROWS - i;//the middle point to merge about
+                //flatten along the columns - ie flattens on the line to horizontally seperated tiles
+                for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                    const LabelT label = pixel_at(LabelT, labelim, r, c);
+                    pixel_at(LabelT, labelim, r, c) = find_root_global(labelim_p, labelim_pitch, label, im_rows, im_cols);
+                }
+            }
+        }
+    }
+
+    if(ncol_tile_merges){
+        assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
+        assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
+        for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
+            const uint cmerge_block_index = cmerge_block_index_start + block_size_in_col_tiles * cmerge_sub_index;
+            assert_val(cmerge_sub_index < nway_merge_in_row_tiles, cmerge_sub_index);
+            if((rmerge_start != rmerge_end) & (tid == 0)){
+                assert_val(c < im_cols, c);
+            }
+            #pragma unroll
+            for(uint i = 0; i < 2; ++i){
+                const uint c = cmerge_block_index * TILE_COLS - i;//the middle point to merge about
+                //merge along the rows - ie this merges to vertically seperated tiles
+                for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                    const LabelT label = pixel_at(LabelT, labelim, r, c);
+                    pixel_at(LabelT, labelim, r, c) = find_root_global(labelim_p, labelim_pitch, label, im_rows, im_cols);
+                }
+            }
+        }
+    }
+}
+
+
 #if 0
 __kernel void mark_root_classes(
     uint im_rows, uint im_cols,

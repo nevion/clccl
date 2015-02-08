@@ -44,6 +44,7 @@ class CCL(object):
         self._label_tiles                                           = self.program.label_tiles
         self._compact_paths_global                                  = self.program.compact_paths_global
         self._merge_tiles                                           = self.program.merge_tiles
+        self._post_merge_flatten                                    = self.program.post_merge_flatten
         #self._mark_root_classes                                     = self.program.mark_root_classes
         self._relabel_with_scanline_order                           = self.program.relabel_with_scanline_order
         self._count_invalid_labels                                  = self.program.count_invalid_labels
@@ -130,6 +131,17 @@ class CCL(object):
             assert(n_merge_tasks)
 
             event = self._merge_tiles(queue,
+                gdims, ldims,
+                uint32(rows), uint32(cols),
+                uint32(vert_block_size), uint32(nway_merge_rc[0]),
+                uint32(horz_block_size), uint32(nway_merge_rc[1]),
+                uint32(nvert_merges), uint32(nhorz_merges),
+                connectivityim.data, uint32(connectivityim.strides[0]),
+                labelim.data, uint32(labelim.strides[0]),
+                wait_for = wait_for
+            )
+            wait_for = [event]
+            event = self._post_merge_flatten(queue,
                 gdims, ldims,
                 uint32(rows), uint32(cols),
                 uint32(vert_block_size), uint32(nway_merge_rc[0]),
