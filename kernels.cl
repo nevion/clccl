@@ -420,6 +420,7 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
 }
 
 #define ENABLE_MERGE_CONFLICT_STATS 0
+
 uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c, __global uint *conflicts){
     LabelT l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
     LabelT l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
