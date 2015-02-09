@@ -183,7 +183,9 @@ __kernel void make_connectivity_image(
 #if CONNECTIVITY_TILE_OUTPUT
             connectivity_tile[t_r][t_c] = connectivity;
 #else
-            pixel_at(ConnectivityPixelT, connectivityim, r, c) = connectivity;
+            if((c < im_cols) & (r < im_rows)){
+                pixel_at(ConnectivityPixelT, connectivityim, r, c) = connectivity;
+            }
 #endif
 
         }
