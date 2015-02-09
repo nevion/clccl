@@ -419,8 +419,8 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
     }
 }
 
-inline
-uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c){
+#define ENABLE_MERGE_CONFLICT_STATS 0
+uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c, __global uint *conflicts){
     LabelT l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
     LabelT l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
     if(l1 == l2){
@@ -450,6 +450,9 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
             ret = old_label_of_ma == mi ? 0 : 1;
             break;
         }
+#if ENABLE_MERGE_CONFLICT_STATS
+        atomic_inc(conflicts);
+#endif
 
         //printf("condition detected with mi = %d ma = %d old_label_ma: %d\n", mi, ma, old_label_of_ma);
         //else somebody snuck in and made the max label now smaller than ours! we need to now retry to merge
@@ -482,6 +485,7 @@ __kernel void merge_tiles(
     const uint nrow_tile_merges, const uint ncol_tile_merges,
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global LabelT *labelim_p, const uint labelim_pitch
+    ,__global uint *gn_merge_conflicts
 ){
     size_t rmerge_job_id;
     size_t cmerge_job_id;
@@ -510,14 +514,14 @@ __kernel void merge_tiles(
     const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
     const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
 
-    uint pchanged;
+    uint pn_merge_conflicts;
     do{
-        __local uint changed;
+        __local uint n_merge_conflicts;
         if(tid == 0){
-            changed = 0;
+            n_merge_conflicts = 0;
         }
         lds_barrier();
-        pchanged = 0;
+        pn_merge_conflicts = 0;
         if(nrow_tile_merges){
             assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
             assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
@@ -532,24 +536,21 @@ __kernel void merge_tiles(
                     //merge along the columns - ie this merges to horizontally seperated tiles
                     for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
-                        uint local_pchanged = 0;
 
                         if(e & UP){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c, gn_merge_conflicts);
                         }
                         #if CONNECTIVITY == 8
                         if(e & LEFT_UP){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1, gn_merge_conflicts);
                         }
                         if(e & RIGHT_UP){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1, gn_merge_conflicts);
                         }
                         #endif
                         //if(local_pchanged){
                         //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
                         //}
-
-                        pchanged += local_pchanged;
                     }
                 }
                 //mem_fence(CLK_GLOBAL_MEM_FENCE);
@@ -558,25 +559,22 @@ __kernel void merge_tiles(
                     const uint r = rmerge_block_index * TILE_ROWS - 1;//the middle point to merge about
                     //merge along the columns - ie this merges to horizontally seperated tiles
                     for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
-                        uint local_pchanged = 0;
 
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                         if(e & DOWN){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c, gn_merge_conflicts);
                         }
                         #if CONNECTIVITY == 8
                         if(e & LEFT_DOWN){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1, gn_merge_conflicts);
                         }
                         if(e & RIGHT_DOWN){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1, gn_merge_conflicts);
                         }
                         #endif
                         //if(local_pchanged){
                         //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
                         //}
-
-                        pchanged += local_pchanged;
                     }
                 }
                 #endif
@@ -596,23 +594,19 @@ __kernel void merge_tiles(
                     const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
                     //merge along the rows - ie this merges to vertically seperated tiles
                     for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
-                        uint local_pchanged = 0;
 
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                         if(e & LEFT){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c - 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c - 1, gn_merge_conflicts);
                         }
                         #if CONNECTIVITY == 8
                         if(e & LEFT_UP){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c - 1, gn_merge_conflicts);
                         }
                         if(e & LEFT_DOWN){
-                            LabelT lu = pixel_at(LabelT, labelim, r + 1, c - 1);
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1, gn_merge_conflicts);
                         }
                         #endif
-
-                        pchanged += local_pchanged;
                     }
                 }
                 #if MERGE_BOTH_EDGES
@@ -620,23 +614,22 @@ __kernel void merge_tiles(
                     const uint c = cmerge_block_index * TILE_COLS - 1;//the middle point to merge about
                     //merge along the rows - ie this merges to vertically seperated tiles
                     for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
-                        uint local_pchanged = 0;
+                        //if(r >= 2003 && r < 2012 &&  c >= 1183 && c < 1185){
+                        //    printf("%d %d %d\n", r, c, lc);
+                        //}
 
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                         if(e & RIGHT){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c + 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r, c + 1, gn_merge_conflicts);
                         }
                         #if CONNECTIVITY == 8
                         if(e & RIGHT_UP){
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1, gn_merge_conflicts);
                         }
                         if(e & RIGHT_DOWN){
-                            LabelT lu = pixel_at(LabelT, labelim, r + 1, c + 1);
-                            local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1);
+                            pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1, gn_merge_conflicts);
                         }
                         #endif
-
-                        pchanged += local_pchanged;
                     }
                 }
                 #endif
@@ -646,10 +639,10 @@ __kernel void merge_tiles(
         //if(tid == 0){
         //    printf("merge_tile_on_rows nway_merge: %d merge_job_id: %d/%d merge_sub_index: %d merge_blocK_index: %d block_size: %d row: %d\n", nway_merge, merge_job_id, get_num_groups(1), merge_sub_index, merge_block_index, block_size, r);
         //}
-        atomic_add(&changed, pchanged);
+        atomic_add(&n_merge_conflicts, pn_merge_conflicts);
         lds_barrier();
-        pchanged = changed;
-    }while(pchanged);
+        pn_merge_conflicts = n_merge_conflicts;
+    }while(pn_merge_conflicts);
 }
 
 //ncalls: logUp(ntiles, nway_merge)
