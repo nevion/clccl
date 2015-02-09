@@ -58,6 +58,10 @@ typedef LDSCONNECTIVITYPIXELT LDSConnectivityPixelT;
 #define TILE_COLS (WORKGROUP_TILE_SIZE_X * WORKITEM_REPEAT_X)
 #define TILE_ROWS (WORKGROUP_TILE_SIZE_Y * WORKITEM_REPEAT_Y)
 
+#ifndef FUSED_MARK_KERNEL
+#define FUSED_MARK_KERNEL 0
+#endif
+
 __constant const uint UP = (1<<0);
 __constant const uint LEFT = (1<<1);
 __constant const uint DOWN = (1<<2);
@@ -709,7 +713,6 @@ __kernel void post_merge_flatten(
 }
 
 
-#if 0
 __kernel void mark_root_classes(
     uint im_rows, uint im_cols,
     __global PixelT *image_p, uint image_pitch,
@@ -727,7 +730,6 @@ __kernel void mark_root_classes(
         pixel_at(uint, is_root_class_image, r, c) = (pixel != BG_VALUE) & (label == linear_index);
     }
 }
-#endif
 
 #ifndef USE_CL2_WORKGROUP_FUNCTIONS
 MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
@@ -769,9 +771,13 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 
         uint count = 0;
         if(linear_index < array_length){
+#if FUSED_MARK_KERNEL
             const PixelT pixel = pixel_at(PixelT, image, r, c);
             const LabelT label = pixel_at(LabelT, labelim, r, c);
             count = ((pixel != BG_VALUE) & (label == linear_index)) ? 1 : 0;
+#else
+            count = pixel_at(uint, array_prefix_sum, r, c);
+#endif
         }
 
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
