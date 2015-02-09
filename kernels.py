@@ -10,6 +10,7 @@ class CCL(object):
         self.best_wg_size = best_wg_size
         self.max_cus = max_cus
         self.fused_mark_kernel = use_fused_mark
+        self.merge_stats = False
 
         self.img_size = np.asarray(img_size, np.uint32)
         self.program = None
@@ -33,8 +34,8 @@ class CCL(object):
         PixelT = type_mapper(self.img_dtype)
         LabelT = type_mapper(self.label_dtype)
 
-        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y} -D FUSED_MARK_KERNEL={fused_mark_kernel} -D IMAGE_MAD_INDEXING ' \
-             .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X, fused_mark_kernel = int(self.fused_mark_kernel))
+        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y} -D FUSED_MARK_KERNEL={fused_mark_kernel} -D ENABLE_MERGE_CONFLICT_STATS={merge_stats} -D IMAGE_MAD_INDEXING ' \
+             .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X, fused_mark_kernel = int(self.fused_mark_kernel), merge_stats = int(self.merge_stats))
         CL_SOURCE = file(os.path.join(base_path, 'kernels.cl'), 'r').read()
         CL_FLAGS = "-I %s -cl-std=CL1.2 %s" %(common_lib_path, KERNEL_FLAGS)
         CL_FLAGS = cl_opt_decorate(self, CL_FLAGS, max(self.WORKGROUP_TILE_SIZE_X*self.WORKGROUP_TILE_SIZE_Y, self.COMPACT_TILE_ROWS*self.COMPACT_TILE_COLS))
@@ -45,6 +46,7 @@ class CCL(object):
         self._label_tiles                                           = self.program.label_tiles
         self._compact_paths_global                                  = self.program.compact_paths_global
         self._merge_tiles                                           = self.program.merge_tiles
+        self._post_merge_convergence_check                          = self.program.post_merge_convergence_check
         self._post_merge_flatten                                    = self.program.post_merge_flatten
         self._mark_root_classes                                     = self.program.mark_root_classes
         self._relabel_with_scanline_order                           = self.program.relabel_with_scanline_order
@@ -114,6 +116,8 @@ class CCL(object):
         ldims = self.best_wg_size,
         #print 'tiles: (%r, %r) nvert_iterations %r nhorz_iterations %r'%(nvert_tiles, nhorz_tiles, nvert_iterations, nhorz_iterations)
 
+        failed_merges_pre = clarray.empty(queue, (1,), np.uint32)
+        failed_merges_post = clarray.empty(queue, (1,), np.uint32)
         event = None
         while iteration < iterations:
             nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] <= rows else 0
@@ -131,28 +135,58 @@ class CCL(object):
             #print 'vert_block_size %d (%r) horz_block_size: %r (%r)'%(vert_block_size, vert_block_size * self.TILE_ROWS, horz_block_size, horz_block_size * self.TILE_COLS)
             assert(n_merge_tasks)
 
-            event = self._merge_tiles(queue,
-                gdims, ldims,
-                uint32(rows), uint32(cols),
-                uint32(vert_block_size), uint32(nway_merge_rc[0]),
-                uint32(horz_block_size), uint32(nway_merge_rc[1]),
-                uint32(nvert_merges), uint32(nhorz_merges),
-                connectivityim.data, uint32(connectivityim.strides[0]),
-                labelim.data, uint32(labelim.strides[0]),
-                wait_for = wait_for
-            )
-            wait_for = [event]
-            event = self._post_merge_flatten(queue,
-                gdims, ldims,
-                uint32(rows), uint32(cols),
-                uint32(vert_block_size), uint32(nway_merge_rc[0]),
-                uint32(horz_block_size), uint32(nway_merge_rc[1]),
-                uint32(nvert_merges), uint32(nhorz_merges),
-                connectivityim.data, uint32(connectivityim.strides[0]),
-                labelim.data, uint32(labelim.strides[0]),
-                wait_for = wait_for
-            )
-            wait_for = [event]
+            while True:
+                if self.merge_stats:
+                    failed_merges_pre[:] = 0
+                    failed_merges_post[:] = 0
+                event = self._merge_tiles(queue,
+                    gdims, ldims,
+                    uint32(rows), uint32(cols),
+                    uint32(vert_block_size), uint32(nway_merge_rc[0]),
+                    uint32(horz_block_size), uint32(nway_merge_rc[1]),
+                    uint32(nvert_merges), uint32(nhorz_merges),
+                    connectivityim.data, uint32(connectivityim.strides[0]),
+                    labelim.data, uint32(labelim.strides[0]),
+                    failed_merges_pre.data,
+                    wait_for = wait_for
+                )
+                wait_for = [event]
+
+                #print 'post-merge'
+                event = self._post_merge_flatten(queue,
+                    gdims, ldims,
+                    uint32(rows), uint32(cols),
+                    uint32(vert_block_size), uint32(nway_merge_rc[0]),
+                    uint32(horz_block_size), uint32(nway_merge_rc[1]),
+                    uint32(nvert_merges), uint32(nhorz_merges),
+                    connectivityim.data, uint32(connectivityim.strides[0]),
+                    labelim.data, uint32(labelim.strides[0]),
+                    wait_for = wait_for
+                )
+                wait_for = [event]
+                break
+                #print 'post-flatten'
+
+                #event = self._post_merge_convergence_check(queue,
+                #    gdims, ldims,
+                #    uint32(rows), uint32(cols),
+                #    uint32(vert_block_size), uint32(nway_merge_rc[0]),
+                #    uint32(horz_block_size), uint32(nway_merge_rc[1]),
+                #    uint32(nvert_merges), uint32(nhorz_merges),
+                #    connectivityim.data, uint32(connectivityim.strides[0]),
+                #    labelim.data, uint32(labelim.strides[0]),
+                #    failed_merges_post.data,
+                #    wait_for = wait_for
+                #)
+                #wait_for = []
+
+                #event.wait()
+                #wait_for = None
+                #nfail_pre = failed_merges_pre.get()
+                #nfail_post = failed_merges_post.get()
+                #print 'failed_merges_pre: %r post: %r'%(nfail_pre, nfail_post)
+                #if nfail_post == 0:
+                #    break
 
             if vert_index < nvert_iterations:
                 vert_block_size *= nway_merge_rc[0]
