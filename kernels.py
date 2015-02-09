@@ -113,24 +113,28 @@ class CCL(object):
         iteration = 0
         vert_index = 0
         horz_index = 0
-        ldims = self.best_wg_size,
+        ldims = self.best_wg_size, 1
         #print 'tiles: (%r, %r) nvert_iterations %r nhorz_iterations %r'%(nvert_tiles, nhorz_tiles, nvert_iterations, nhorz_iterations)
 
         failed_merges_pre = clarray.empty(queue, (1,), np.uint32)
         failed_merges_post = clarray.empty(queue, (1,), np.uint32)
         event = None
         while iteration < iterations:
-            nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] <= rows else 0
-            nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] <= cols else 0
+            nvert_merges = nvert_tiles // (nway_merge_rc[0] * vert_block_size) if vert_block_size * nway_merge_rc[0] <= nvert_tiles else 0
+            nhorz_merges = nhorz_tiles // (nway_merge_rc[1] * horz_block_size) if horz_block_size * nway_merge_rc[1] <= nhorz_tiles else 0
             n_merge_tasks = 0
+            n_line_workers = 1
             if nvert_merges > 0 and nhorz_merges > 0:
                 n_merge_tasks = nvert_merges * nhorz_merges
+                n_line_workers = max(divUp(nway_merge_rc[0] * vert_block_size * self.TILE_ROWS, ldims[0]), divUp(nway_merge_rc[1] * horz_block_size * self.TILE_COLS, ldims[0]))
             elif nvert_merges > 0:
                 n_merge_tasks = nvert_merges
+                n_line_workers = divUp(nway_merge_rc[0] * vert_block_size * self.TILE_ROWS, ldims[0])
             else: #nvert_merges = 0
                 n_merge_tasks = nhorz_merges
+                n_line_workers = divUp(nway_merge_rc[1] * horz_block_size * self.TILE_COLS, ldims[0])
 
-            gdims = n_merge_tasks * ldims[0],
+            gdims = n_merge_tasks * ldims[0], n_line_workers * ldims[1]
             #print 'nvert_merges: %d nhorz_merges: %d n_merge_tasks: %d'%(nvert_merges, nhorz_merges, n_merge_tasks)
             #print 'vert_block_size %d (%r) horz_block_size: %r (%r)'%(vert_block_size, vert_block_size * self.TILE_ROWS, horz_block_size, horz_block_size * self.TILE_COLS)
             assert(n_merge_tasks)

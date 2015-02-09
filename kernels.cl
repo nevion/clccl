@@ -517,6 +517,11 @@ __kernel void merge_tiles(
     const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
     const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
 
+    const size_t line_wg_id = get_group_id(1);
+    const size_t nline_workers = get_num_groups(1);
+    const size_t wg_size = get_local_size(0);
+    const size_t line_block_size = wg_size;//efficient block size
+
     uint pn_merge_conflicts;
     do{
         __local uint n_merge_conflicts;
@@ -526,6 +531,13 @@ __kernel void merge_tiles(
         lds_barrier();
         pn_merge_conflicts = 0;
         if(nrow_tile_merges){
+            const size_t nline_blocks = divUp(cmerge_end - cmerge_start, line_block_size);//number of efficiently processible blocks
+            const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
+            const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
+            const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
+            const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
+            const size_t line_start_index = nline_blocks_to_left * line_block_size + cmerge_start;
+            const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, cmerge_end);//block aligned end
             assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
             assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
             for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -537,7 +549,9 @@ __kernel void merge_tiles(
                 {
                     const uint r = rmerge_block_index * TILE_ROWS;//the middle point to merge about
                     //merge along the columns - ie this merges to horizontally seperated tiles
-                    for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+
+                    for(uint c = line_start_index + tid; c < line_end_index; c += get_local_size(0)){
+                    //for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
 
                         if(e & UP){
@@ -557,8 +571,8 @@ __kernel void merge_tiles(
                 {
                     const uint r = rmerge_block_index * TILE_ROWS - 1;//the middle point to merge about
                     //merge along the columns - ie this merges to horizontally seperated tiles
-                    for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
-
+                    for(uint c = line_start_index + tid; c < line_end_index; c += get_local_size(0)){
+                    //for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                         if(e & DOWN){
                             pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c, gn_merge_conflicts);
@@ -578,6 +592,14 @@ __kernel void merge_tiles(
         }
 
         if(ncol_tile_merges){
+            const size_t nline_blocks = divUp(rmerge_end - rmerge_start, line_block_size);//number of efficiently processible blocks
+            const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
+            const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
+            const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
+            const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
+            const size_t line_start_index = nline_blocks_to_left * line_block_size + rmerge_start;
+            const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, rmerge_end);//block aligned end
+
             assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
             assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
             for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
@@ -589,7 +611,8 @@ __kernel void merge_tiles(
                 {
                     const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
                     //merge along the rows - ie this merges to vertically seperated tiles
-                    for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                    //for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                    for(uint r = line_start_index + tid; r < line_end_index; r += get_local_size(0)){
 
                         const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                         if(e & LEFT){
@@ -609,7 +632,8 @@ __kernel void merge_tiles(
                 {
                     const uint c = cmerge_block_index * TILE_COLS - 1;//the middle point to merge about
                     //merge along the rows - ie this merges to vertically seperated tiles
-                    for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                    //for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                    for(uint r = line_start_index + tid; r < line_end_index; r += get_local_size(0)){
                         //if(r >= 2003 && r < 2012 &&  c >= 1183 && c < 1185){
                         //    printf("%d %d %d\n", r, c, lc);
                         //}
@@ -803,7 +827,19 @@ __kernel void post_merge_flatten(
     const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
     const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
 
+    const size_t line_wg_id = get_group_id(1);
+    const size_t nline_workers = get_num_groups(1);
+    const size_t wg_size = get_local_size(0);
+    const size_t line_block_size = wg_size;//efficient block size
+
     if(nrow_tile_merges){
+        const size_t nline_blocks = divUp(cmerge_end - cmerge_start, line_block_size);//number of efficiently processible blocks
+        const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
+        const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
+        const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
+        const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
+        const size_t line_start_index = nline_blocks_to_left * line_block_size + cmerge_start;
+        const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, cmerge_end);//block aligned end
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
         for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -816,7 +852,8 @@ __kernel void post_merge_flatten(
             for(uint i = 0; i < 2; ++i){
                 const uint r = rmerge_block_index * TILE_ROWS - i;//the middle point to merge about
                 //flatten along the columns - ie flattens on the line to horizontally seperated tiles
-                for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                //for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                for(uint c = line_start_index + tid; c < line_end_index; c += get_local_size(0)){
                     const LabelT label = pixel_at(LabelT, labelim, r, c);
                     pixel_at(LabelT, labelim, r, c) = find_root_global(labelim_p, labelim_pitch, label, im_rows, im_cols);
                 }
@@ -825,6 +862,14 @@ __kernel void post_merge_flatten(
     }
 
     if(ncol_tile_merges){
+        const size_t nline_blocks = divUp(rmerge_end - rmerge_start, line_block_size);//number of efficiently processible blocks
+        const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
+        const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
+        const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
+        const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
+        const size_t line_start_index = nline_blocks_to_left * line_block_size + rmerge_start;
+        const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, rmerge_end);//block aligned end
+
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
         for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
@@ -837,6 +882,7 @@ __kernel void post_merge_flatten(
             for(uint i = 0; i < 2; ++i){
                 const uint c = cmerge_block_index * TILE_COLS - i;//the middle point to merge about
                 //merge along the rows - ie this merges to vertically seperated tiles
+                //for(uint r = line_start_index + tid; r < line_end_index; r += get_local_size(0)){
                 for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
                     const LabelT label = pixel_at(LabelT, labelim, r, c);
                     pixel_at(LabelT, labelim, r, c) = find_root_global(labelim_p, labelim_pitch, label, im_rows, im_cols);
