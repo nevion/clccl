@@ -419,7 +419,9 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
     }
 }
 
-#define ENABLE_MERGE_CONFLICT_STATS 0
+#ifndef MERGE_CONFLICT_STATS
+#define MERGE_CONFLICT_STATS 0
+#endif
 
 uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c, __global uint *conflicts){
     LabelT l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
@@ -451,7 +453,7 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
             ret = old_label_of_ma == mi ? 0 : 1;
             break;
         }
-#if ENABLE_MERGE_CONFLICT_STATS
+#if MERGE_CONFLICT_STATS
         atomic_inc(conflicts);
 #endif
 
