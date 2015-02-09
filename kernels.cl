@@ -465,6 +465,8 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
     return ret;
 }
 
+#define MERGE_BOTH_EDGES 0
+
 //ncalls: logUp(ntiles, nway_merge)
 //group size: k, 1: k can be anything
 //gdims: roundUpToMultiple(im_cols, k), nmerges : nmerges = ntiles // (nway_merge * block_size)
@@ -548,6 +550,7 @@ __kernel void merge_tiles(
                     }
                 }
                 //mem_fence(CLK_GLOBAL_MEM_FENCE);
+                #if MERGE_BOTH_EDGES
                 {
                     const uint r = rmerge_block_index * TILE_ROWS - 1;//the middle point to merge about
                     //merge along the columns - ie this merges to horizontally seperated tiles
@@ -573,6 +576,7 @@ __kernel void merge_tiles(
                         pchanged += local_pchanged;
                     }
                 }
+                #endif
             }
         }
 
@@ -604,9 +608,11 @@ __kernel void merge_tiles(
                             local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c - 1);
                         }
                         #endif
+
                         pchanged += local_pchanged;
                     }
                 }
+                #if MERGE_BOTH_EDGES
                 {
                     const uint c = cmerge_block_index * TILE_COLS - 1;//the middle point to merge about
                     //merge along the rows - ie this merges to vertically seperated tiles
@@ -626,9 +632,11 @@ __kernel void merge_tiles(
                             local_pchanged += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1);
                         }
                         #endif
+
                         pchanged += local_pchanged;
                     }
                 }
+                #endif
             }
         }
 
