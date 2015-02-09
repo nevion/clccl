@@ -18,7 +18,7 @@ class CCL(object):
         self.WORKGROUP_TILE_SIZE_X = 32
         self.WORKGROUP_TILE_SIZE_Y = 8
         self.WORKITEM_REPEAT_X     = 1
-        self.WORKITEM_REPEAT_Y     = 8
+        self.WORKITEM_REPEAT_Y     = 5
         self.TILE_ROWS = self.WORKGROUP_TILE_SIZE_Y * self.WORKITEM_REPEAT_Y
         self.TILE_COLS = self.WORKGROUP_TILE_SIZE_X * self.WORKITEM_REPEAT_X
         self.COMPACT_TILE_ROWS = 32
