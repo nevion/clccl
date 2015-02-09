@@ -444,6 +444,7 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 
         __global LabelT *ma_lp = &pixel_at(LabelT, labelim, ma_y, ma_x);
         const LabelT old_label_of_ma = atomic_min(ma_lp, mi);
+        
         if(old_label_of_ma >= mi){
             //printf("merge successful with mi = %d ma = %d old_label_ma: %d\n", mi, ma, old_label_of_ma);
             ret = old_label_of_ma == mi ? 0 : 1;
@@ -451,7 +452,7 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
         }
 
         //printf("condition detected with mi = %d ma = %d old_label_ma: %d\n", mi, ma, old_label_of_ma);
-        //else somebody snuck in and made the max label now smaller than ours! we need to now try to merge with that label
+        //else somebody snuck in and made the max label now smaller than ours! we need to now retry to merge
         l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
         l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
 
