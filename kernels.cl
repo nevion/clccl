@@ -638,6 +638,128 @@ __kernel void merge_tiles(
     }while(pn_merge_conflicts);
 }
 
+__kernel void post_merge_convergence_check(
+    const uint im_rows, const uint im_cols,
+    const uint block_size_in_row_tiles, const uint nway_merge_in_row_tiles, /*2 recommended */
+    const uint block_size_in_col_tiles, const uint nway_merge_in_col_tiles, /*2 recommended */
+    const uint nrow_tile_merges, const uint ncol_tile_merges,
+    const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
+    const __global LabelT *labelim_p, const uint labelim_pitch
+    ,__global uint *gn_failed_merges
+){
+    size_t rmerge_job_id;
+    size_t cmerge_job_id;
+    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){
+        rmerge_job_id = get_group_id(0) / ncol_tile_merges;
+        cmerge_job_id = get_group_id(0) % ncol_tile_merges;
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
+    }else if(nrow_tile_merges > 0){//ncol_tile_merges = 0
+        rmerge_job_id = get_group_id(0);
+        cmerge_job_id = 0;
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
+    }else{//nrow_tile_merges = 0
+        rmerge_job_id = 0;
+        cmerge_job_id = get_group_id(0);
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
+    }
+
+    const size_t tid = get_local_id(0);
+    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;
+    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;
+    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;
+    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);
+    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;
+    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;
+    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
+    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
+
+    uint pn_failed_merges;
+    __local uint n_failed_merges;
+    if(tid == 0){
+        n_failed_merges = 0;
+    }
+    lds_barrier();
+    pn_failed_merges = 0;
+    if(nrow_tile_merges){
+        assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
+        assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
+        for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
+            const uint rmerge_block_index = rmerge_block_index_start + block_size_in_row_tiles * rmerge_sub_index;
+            assert_val(rmerge_sub_index < nway_merge_in_row_tiles, rmerge_sub_index);
+            if((cmerge_start != cmerge_end) & (tid == 0)){
+                assert_val(r < im_rows, r);
+            }
+            {
+                const uint r = rmerge_block_index * TILE_ROWS;//the middle point to merge about
+                //merge along the columns - ie this merges to horizontally seperated tiles
+                for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                    const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+
+                    const LabelT l1 = pixel_at(LabelT, labelim, r, c);
+                    //const LabelT r1 = find_root_global(labelim_p, labelim_pitch, l1, im_rows, im_cols);
+                    if(e & UP){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r - 1, c);
+                        //const LabelT r2 = find_root_global(labelim_p, labelim_pitch, l2, im_rows, im_cols);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    #if CONNECTIVITY == 8
+                    if(e & LEFT_UP){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r - 1, c - 1);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    if(e & RIGHT_UP){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r - 1, c + 1);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    #endif
+                }
+            }
+        }
+    }
+
+    if(ncol_tile_merges){
+        assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
+        assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
+        for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
+            const uint cmerge_block_index = cmerge_block_index_start + block_size_in_col_tiles * cmerge_sub_index;
+            assert_val(cmerge_sub_index < nway_merge_in_row_tiles, cmerge_sub_index);
+            if((rmerge_start != rmerge_end) & (tid == 0)){
+                assert_val(c < im_cols, c);
+            }
+            {
+                const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
+                //merge along the rows - ie this merges to vertically seperated tiles
+                for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+
+                    const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
+                    const LabelT l1 = pixel_at(LabelT, labelim, r, c);
+                    //const LabelT r1 = find_root_global(labelim_p, labelim_pitch, l1, im_rows, im_cols);
+                    if(e & LEFT){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r, c - 1);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    #if CONNECTIVITY == 8
+                    if(e & LEFT_UP){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r - 1, c - 1);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    if(e & LEFT_DOWN){
+                        const LabelT l2 = pixel_at(LabelT, labelim, r + 1, c - 1);
+                        pn_failed_merges += l1 != l2;
+                    }
+                    #endif
+                }
+            }
+        }
+    }
+    atomic_add(&n_failed_merges, pn_failed_merges);
+    lds_barrier();
+    if(tid == 0){
+        atomic_add(gn_failed_merges, n_failed_merges);
+    }
+}
+
 //ncalls: logUp(ntiles, nway_merge)
 //group size: k, 1: k can be anything
 //gdims: roundUpToMultiple(im_cols, k), nmerges : nmerges = ntiles // (nway_merge * block_size)
