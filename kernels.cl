@@ -475,6 +475,10 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 }
 
 #define MERGE_BOTH_EDGES 0
+#define NWAY_MERGE_IN_ROW_TILES 2
+#define NWAY_MERGE_IN_COL_TILES 2
+#define nway_merge_in_row_tiles NWAY_MERGE_IN_ROW_TILES
+#define nway_merge_in_col_tiles NWAY_MERGE_IN_COL_TILES
 
 //ncalls: logUp(ntiles, nway_merge)
 //group size: k, 1: k can be anything
@@ -483,8 +487,8 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 //a horizontal merge spanning vertically in cols
 __kernel void merge_tiles(
     const uint im_rows, const uint im_cols,
-    const uint block_size_in_row_tiles, const uint nway_merge_in_row_tiles, /*2 recommended */
-    const uint block_size_in_col_tiles, const uint nway_merge_in_col_tiles, /*2 recommended */
+    const uint block_size_in_row_tiles,
+    const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global LabelT *labelim_p, const uint labelim_pitch
@@ -667,8 +671,8 @@ __kernel void merge_tiles(
 
 __kernel void post_merge_convergence_check(
     const uint im_rows, const uint im_cols,
-    const uint block_size_in_row_tiles, const uint nway_merge_in_row_tiles, /*2 recommended */
-    const uint block_size_in_col_tiles, const uint nway_merge_in_col_tiles, /*2 recommended */
+    const uint block_size_in_row_tiles,
+    const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     const __global LabelT *labelim_p, const uint labelim_pitch
@@ -711,6 +715,7 @@ __kernel void post_merge_convergence_check(
     if(nrow_tile_merges){
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
+        #pragma unroll
         for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
             const uint rmerge_block_index = rmerge_block_index_start + block_size_in_row_tiles * rmerge_sub_index;
             assert_val(rmerge_sub_index < nway_merge_in_row_tiles, rmerge_sub_index);
@@ -748,6 +753,7 @@ __kernel void post_merge_convergence_check(
     if(ncol_tile_merges){
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
+        #pragma unroll
         for(uint cmerge_sub_index = 1; cmerge_sub_index < nway_merge_in_col_tiles; cmerge_sub_index++){
             const uint cmerge_block_index = cmerge_block_index_start + block_size_in_col_tiles * cmerge_sub_index;
             assert_val(cmerge_sub_index < nway_merge_in_row_tiles, cmerge_sub_index);
@@ -794,8 +800,8 @@ __kernel void post_merge_convergence_check(
 //a horizontal merge spanning vertically in cols
 __kernel void post_merge_flatten(
     const uint im_rows, const uint im_cols,
-    const uint block_size_in_row_tiles, const uint nway_merge_in_row_tiles, /*2 recommended */
-    const uint block_size_in_col_tiles, const uint nway_merge_in_col_tiles, /*2 recommended */
+    const uint block_size_in_row_tiles,
+    const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global LabelT *labelim_p, const uint labelim_pitch
