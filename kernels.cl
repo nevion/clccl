@@ -107,6 +107,8 @@ __constant const uint RIGHT_DOWN = (1<<7);
 //    }
 //}
 
+#define CONNECTIVITY_TILE_OUTPUT 0
+
 #define apron_pixel(apron, _t_r, _t_c) apron[(_t_r+ 1)][(_t_c + 1)]
 //global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
@@ -135,7 +137,10 @@ __kernel void make_connectivity_image(
     const uint n_work_items = get_local_size(0) * get_local_size(1);
     const uint n_apron_tile_pixels = (tile_rows + 2) * (apron_tile_cols);
     __local LDSPixelT im_tile[TILE_ROWS + 2][TILE_COLS + 2];
+
+#if CONNECTIVITY_TILE_OUTPUT
     __local LDSConnectivityPixelT connectivity_tile[TILE_ROWS][TILE_COLS];
+#endif
 
     const uint tid = get_local_linear_id();
     for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_apron_tile_pixels; im_tile_fill_task_id += n_work_items){
@@ -175,9 +180,15 @@ __kernel void make_connectivity_image(
             connectivity |=          r > 0                         && isConnected(pixel, apron_pixel(im_tile, t_r-1, t_c    )) ? UP : 0;
 #endif
             connectivity = (c < im_cols) & (r < im_rows) ? connectivity : 0;
+#if CONNECTIVITY_TILE_OUTPUT
             connectivity_tile[t_r][t_c] = connectivity;
+#else
+            pixel_at(ConnectivityPixelT, connectivityim, r, c) = connectivity;
+#endif
+
         }
     }
+#if CONNECTIVITY_TILE_OUTPUT
     lds_barrier();
 
     for(uint im_tile_fill_task_id = tid; im_tile_fill_task_id < n_tile_pixels; im_tile_fill_task_id += n_work_items){
@@ -188,6 +199,7 @@ __kernel void make_connectivity_image(
 
         pixel_at(ConnectivityPixelT, connectivityim, g_r, g_c) = connectivity_tile[im_tile_row][im_tile_col];
     }
+#endif
 }
 
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))

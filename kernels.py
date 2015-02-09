@@ -1,7 +1,7 @@
 from kernel_common import *
 
 class CCL(object):
-    def __init__(self, img_size, img_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size, max_cus = compute_units):
+    def __init__(self, img_size, img_dtype, label_dtype, connectivity_dtype=np.uint32, debug=False, best_wg_size = default_wg_size, max_cus = compute_units, use_fused_mark = True):
         self.img_size = img_size
         self.img_dtype = img_dtype
         self.label_dtype = label_dtype
@@ -9,6 +9,7 @@ class CCL(object):
         self.debug = debug
         self.best_wg_size = best_wg_size
         self.max_cus = max_cus
+        self.fused_mark_kernel = use_fused_mark
 
         self.img_size = np.asarray(img_size, np.uint32)
         self.program = None
@@ -32,8 +33,8 @@ class CCL(object):
         PixelT = type_mapper(self.img_dtype)
         LabelT = type_mapper(self.label_dtype)
 
-        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y} -D IMAGE_MAD_INDEXING ' \
-            .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X)
+        KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y} -D FUSED_MARK_KERNEL={fused_mark_kernel} -D IMAGE_MAD_INDEXING ' \
+             .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X, fused_mark_kernel = int(self.fused_mark_kernel))
         CL_SOURCE = file(os.path.join(base_path, 'kernels.cl'), 'r').read()
         CL_FLAGS = "-I %s -cl-std=CL1.2 %s" %(common_lib_path, KERNEL_FLAGS)
         CL_FLAGS = cl_opt_decorate(self, CL_FLAGS, max(self.WORKGROUP_TILE_SIZE_X*self.WORKGROUP_TILE_SIZE_Y, self.COMPACT_TILE_ROWS*self.COMPACT_TILE_COLS))
@@ -45,7 +46,7 @@ class CCL(object):
         self._compact_paths_global                                  = self.program.compact_paths_global
         self._merge_tiles                                           = self.program.merge_tiles
         self._post_merge_flatten                                    = self.program.post_merge_flatten
-        #self._mark_root_classes                                     = self.program.mark_root_classes
+        self._mark_root_classes                                     = self.program.mark_root_classes
         self._relabel_with_scanline_order                           = self.program.relabel_with_scanline_order
         self._count_invalid_labels                                  = self.program.count_invalid_labels
         self._mark_roots_and_make_intra_wg_block_local_prefix_sums  = self.program.mark_roots_and_make_intra_wg_block_local_prefix_sums
@@ -173,7 +174,23 @@ class CCL(object):
         n_block_sums = nblocks//nblocks_per_wg
         intra_wg_block_sums = clarray.empty(queue, (n_block_sums,), np.uint32)
         prefix_sums = clarray.empty(queue, tuple(self.img_size), np.uint32)
-        event = self._mark_roots_and_make_intra_wg_block_local_prefix_sums(queue, (compute_units * wg_size,), (wg_size,),
+
+        if self.fused_mark_kernel:
+            ldims = self.COMPACT_TILE_COLS, self.COMPACT_TILE_ROWS
+            r_blocks, c_blocks = divUp(rows, ldims[1]), divUp(cols, ldims[0])
+            gdims = (c_blocks * ldims[0], r_blocks * ldims[1])
+            event = self._mark_root_classes(queue, gdims, ldims,
+                uint32(rows), uint32(cols),
+                image.data, uint32(image.strides[0]),
+                labelim.data, uint32(labelim.strides[0]),
+                prefix_sums.data, uint32(prefix_sums.strides[0]),
+                wait_for=wait_for
+            )
+            wait_for = [event]
+
+        gdims = compute_units * wg_size,
+
+        event = self._mark_roots_and_make_intra_wg_block_local_prefix_sums(queue, gdims, (wg_size,),
             uint32(rows), uint32(cols),
             image.data, uint32(image.strides[0]),
             labelim.data, uint32(labelim.strides[0]),
@@ -186,7 +203,7 @@ class CCL(object):
             wait_for=[event]
         )
         label_count = clarray.empty(queue, (1,), self.label_dtype)
-        event = self._make_prefix_sums_with_intra_wg_block_global_sums(queue, (compute_units * wg_size,), (wg_size,),
+        event = self._make_prefix_sums_with_intra_wg_block_global_sums(queue, gdims, (wg_size,),
             uint32(rows), uint32(cols),
             intra_wg_block_sums.data,
             prefix_sums.data, uint32(prefix_sums.strides[0]),
