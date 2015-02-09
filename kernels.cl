@@ -548,12 +548,8 @@ __kernel void merge_tiles(
                             pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r - 1, c + 1, gn_merge_conflicts);
                         }
                         #endif
-                        //if(local_pchanged){
-                        //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
-                        //}
                     }
                 }
-                //mem_fence(CLK_GLOBAL_MEM_FENCE);
                 #if MERGE_BOTH_EDGES
                 {
                     const uint r = rmerge_block_index * TILE_ROWS - 1;//the middle point to merge about
@@ -572,9 +568,6 @@ __kernel void merge_tiles(
                             pn_merge_conflicts += merge_edge_labels(im_rows, im_cols, labelim_p, labelim_pitch, r, c, r + 1, c + 1, gn_merge_conflicts);
                         }
                         #endif
-                        //if(local_pchanged){
-                        //    atomic_min(&pixel_at(LabelT, labelim, r, c), lc);
-                        //}
                     }
                 }
                 #endif
