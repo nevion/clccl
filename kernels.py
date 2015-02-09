@@ -15,13 +15,13 @@ class CCL(object):
         self.program = None
         self.kernel = None
         self.WORKGROUP_TILE_SIZE_X = 32
-        self.WORKGROUP_TILE_SIZE_Y = 2
+        self.WORKGROUP_TILE_SIZE_Y = 8
         self.WORKITEM_REPEAT_X     = 1
-        self.WORKITEM_REPEAT_Y     = 16
+        self.WORKITEM_REPEAT_Y     = 8
         self.TILE_ROWS = self.WORKGROUP_TILE_SIZE_Y * self.WORKITEM_REPEAT_Y
         self.TILE_COLS = self.WORKGROUP_TILE_SIZE_X * self.WORKITEM_REPEAT_X
         self.COMPACT_TILE_ROWS = 32
-        self.COMPACT_TILE_COLS = 2
+        self.COMPACT_TILE_COLS = 8
 
     def make_input_buffer(self, queue):
         return clarray.empty(queue, tuple(self.img_size), dtype=self.img_dtype)
