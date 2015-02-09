@@ -871,7 +871,9 @@ MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 //computes local prefix sums to get intra-wg blocksums, prefix sum that to get intra-wg offsets - this is needed to merge the final blocksums
 //global dims: <wgs_per_histogram, n_tiles>, work_dims: <wg_size, 1>
 //global blocksums[divUp(nblocks, blocks_per_wg)]
+#ifdef GPU_ARCH
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
+#endif
 __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
     __global const PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
@@ -913,7 +915,11 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 #ifdef USE_CL2_WORKGROUP_FUNCTIONS
         uint block_prefix_sum_inclusive = work_group_scan_inclusive_add(count);
 #else
+#ifdef GPU_ARCH
         __local uint lmem[WORK_GROUP_FUNCTION_MEMORY_SIZE_POWER2_(DEVICE_WAVEFRONT_SIZE)];
+#else
+        __local uint lmem[WORK_GROUP_FUNCTION_MAX_MEMORY_SIZE];
+#endif
         uint block_prefix_sum_inclusive = clc_work_group_scan_inclusive_add_uint(count, lmem);
 #endif
 
@@ -936,7 +942,7 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 //exclusive prefix sums intra-wg blocksums to get intra-wg offsets - needed to merge together all the wg-local prefix sums
 //global dims: <1, n_tiles>, work_dims: <wg_size, 1>
 //global tile_intra_wg_block_sums[n_tiles][nblocks_to_merge]
-#ifdef PROMISE_WG_IS_WAVEFRONT
+#ifdef GPU_ARCH
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void make_intra_wg_block_global_sums(
@@ -984,7 +990,9 @@ __kernel void make_intra_wg_block_global_sums(
 //merges global offsets of intra-wg-block offsets of prefix sums
 //global dims: <wgs_per_sum>, work_dims: <wg_size> : wg_size >= nblocks_to_merge
 //global array_of_prefix_sums[im_rows*im_cols] : as input partial sums, as output full prefix sum
+#ifdef GPU_ARCH
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
+#endif
 __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
     const uint im_rows, const uint im_cols,
     __global const uint * restrict intra_wg_block_sums_p,
