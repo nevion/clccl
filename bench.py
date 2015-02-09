@@ -15,7 +15,7 @@ wg_size = default_wg_size
 img = frame.astype(pixel_dtype)
 
 h,w = img.shape
-ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, False, wg_size, max_cus = 4 * compute_units, use_fused_mark=False)
+ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, debug=False, wg_size, max_cus = 4 * compute_units, use_fused_mark=False)
 ccl.compile()
 
 cl_src_img = ccl.make_input_buffer(queue)
