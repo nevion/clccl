@@ -72,7 +72,6 @@ class CCL(object):
         return event, connectivityim
 
     def label_tiles(self, queue, connectivityim, wait_for = None):
-        labelim = clarray.empty(queue, tuple(self.img_size), uint32)
         tile_dims = self.TILE_COLS, self.TILE_ROWS
         ldims = self.WORKGROUP_TILE_SIZE_X, self.WORKGROUP_TILE_SIZE_Y
         rows, cols = int(self.img_size[0]), int(self.img_size[1])
