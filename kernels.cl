@@ -41,6 +41,11 @@ typedef LDSCONNECTIVITYPIXELT LDSConnectivityPixelT;
 #define CONNECTIVITY 8
 #endif
 
+#ifndef DYNAMIC_IMGDIMS
+#define im_rows IMG_ROWS
+#define im_cols IMG_COLS
+#endif
+
 #ifndef WORKGROUP_TILE_SIZE_X
 #define WORKGROUP_TILE_SIZE_X 32
 #endif
@@ -82,7 +87,10 @@ __constant const uint RIGHT_DOWN = (1<<7);
 //global dimensions: divUp(im_cols, tile_cols), divUp(im_rows, tile_rows);
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void make_connectivity_image(
-    uint im_rows, uint im_cols, __global const PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+#ifdef DYNAMIC_IMGDIMS
+    uint im_rows, uint im_cols,
+#endif
+    __global const PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
     const uint tile_col_blocksize = TILE_COLS;
     const uint tile_row_blocksize = TILE_ROWS;
@@ -175,7 +183,10 @@ __kernel void make_connectivity_image(
 
 __attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
 __kernel void label_tiles(
-    uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch, __global const ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
+#ifdef DYNAMIC_IMGDIMS
+    uint im_rows, uint im_cols,
+#endif
+    __global LabelT *labelim_p, uint labelim_pitch, __global const ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch
 ){
     const uint tile_col_blocksize = TILE_COLS;
     const uint tile_row_blocksize = TILE_ROWS;
@@ -343,7 +354,13 @@ __kernel void label_tiles(
 }
 
 inline
-LabelT find_root_global(__global LabelT *labelim_p, uint labelim_pitch, LabelT label, const uint im_rows, const uint im_cols){
+LabelT find_root_global(__global LabelT *labelim_p, uint labelim_pitch, LabelT label
+#ifdef DYNAMIC_IMGDIMS
+    , const uint im_rows, const uint im_cols
+#else
+    ,const uint d1, const uint d2
+#endif
+){
     for(;;){
         const uint y = label / im_cols;
         const uint x = label % im_cols;
@@ -361,7 +378,13 @@ LabelT find_root_global(__global LabelT *labelim_p, uint labelim_pitch, LabelT l
 }
 
 inline
-LabelT find_root_global_uncached(__global LabelT *labelim_p, uint labelim_pitch, LabelT label, const uint im_rows, const uint im_cols){
+LabelT find_root_global_uncached(__global LabelT *labelim_p, uint labelim_pitch, LabelT label
+#ifdef DYNAMIC_IMGDIMS
+    ,const uint im_rows, const uint im_cols
+#else
+    ,const uint d1, const uint d2
+#endif
+){
     for(;;){
         const uint r = label / im_cols;
         const uint c = label % im_cols;
@@ -378,7 +401,11 @@ LabelT find_root_global_uncached(__global LabelT *labelim_p, uint labelim_pitch,
     return label;
 }
 
-__kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *labelim_p, uint labelim_pitch){
+__kernel void compact_paths_global(
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#endif
+    __global LabelT *labelim_p, uint labelim_pitch){
     const uint x = get_global_id(0);
     const uint y = get_global_id(1);
 
@@ -392,7 +419,13 @@ __kernel void compact_paths_global(uint im_rows, uint im_cols, __global LabelT *
 #define MERGE_CONFLICT_STATS 0
 #endif
 
-uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c, __global uint *conflicts){
+uint merge_edge_labels(
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#else
+    const uint d1, const uint d2,
+#endif
+    __global LabelT *labelim_p, const uint labelim_pitch, uint l1_r, uint l1_c, uint l2_r, uint l2_c, __global uint *conflicts){
     LabelT l1 = atomic_load(&pixel_at(LabelT, labelim, l1_r, l1_c));
     LabelT l2 = atomic_load(&pixel_at(LabelT, labelim, l2_r, l2_c));
     if(l1 == l2){
@@ -497,7 +530,9 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 //block_size: nway_merge^(call_index) for call_index=[0, ncalls): 1<=block_size<=nway_merge^(logUp(nhorz_tiles, nway_merge)-1)
 //a horizontal merge spanning vertically in cols
 __kernel void merge_tiles(
+#ifdef DYNAMIC_IMGDIMS
     const uint im_rows, const uint im_cols,
+#endif
     const uint block_size_in_row_tiles,
     const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
@@ -639,7 +674,9 @@ __kernel void merge_tiles(
 }
 
 __kernel void post_merge_convergence_check(
+#ifdef DYNAMIC_IMGDIMS
     const uint im_rows, const uint im_cols,
+#endif
     const uint block_size_in_row_tiles,
     const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
@@ -747,7 +784,9 @@ __kernel void post_merge_convergence_check(
 //block_size: nway_merge^(call_index) for call_index=[0, ncalls): 1<=block_size<=nway_merge^(logUp(nhorz_tiles, nway_merge)-1)
 //a horizontal merge spanning vertically in cols
 __kernel void post_merge_flatten(
+#ifdef DYNAMIC_IMGDIMS
     const uint im_rows, const uint im_cols,
+#endif
     const uint block_size_in_row_tiles,
     const uint block_size_in_col_tiles,
     const uint nrow_tile_merges, const uint ncol_tile_merges,
@@ -806,7 +845,9 @@ __kernel void post_merge_flatten(
 
 
 __kernel void mark_root_classes(
-    uint im_rows, uint im_cols,
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#endif
     __global PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
     __global uint* is_root_class_image_p, const uint is_root_class_image_pitch
@@ -850,7 +891,10 @@ MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 #ifdef GPU_ARCH
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
-__kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows, uint im_cols,
+__kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#endif
     __global const PixelT *image_p, uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
     __global uint * restrict array_intra_wg_block_sums_p,
@@ -858,6 +902,7 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
 ){
 
     PREFIX_SUM_HEADER
+    (void) nblocks_to_merge;
     uint inter_block_sum = 0;
 
     for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
@@ -957,12 +1002,15 @@ __kernel void make_intra_wg_block_global_sums(
 __attribute__((reqd_work_group_size(DEVICE_WAVEFRONT_SIZE, 1, 1)))
 #endif
 __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
+#ifdef DYNAMIC_IMGDIMS
     const uint im_rows, const uint im_cols,
+#endif
     __global const uint * restrict intra_wg_block_sums_p,
     __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch,
     __global LabelT* label_count_p
 ){
     PREFIX_SUM_HEADER
+    (void) nblocks_to_merge;
 
     const uint inter_block_sum = intra_wg_block_sums_p[array_wg_id];
     for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
@@ -979,7 +1027,9 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
 }
 
 __kernel void relabel_with_scanline_order(
-    uint im_rows, uint im_cols,
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#endif
     __global LabelT* labelim_out_p, const uint labelim_out_pitch,
     __global const PixelT* image_p, const uint image_pitch,
     __global const LabelT* labelim_p, const uint labelim_pitch,
@@ -1003,7 +1053,9 @@ __kernel void relabel_with_scanline_order(
 }
 
 __kernel void count_invalid_labels(
-    uint im_rows, uint im_cols,
+#ifdef DYNAMIC_IMGDIMS
+    const uint im_rows, const uint im_cols,
+#endif
     __global const LabelT* labelim_p, const uint labelim_pitch,
     __global const ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global const uint *dcountim_p, const uint dcountim_pitch
