@@ -77,38 +77,6 @@ __constant const uint RIGHT_DOWN = (1<<7);
 
 #define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE2(basename, _p), im_rows, im_cols, PASTE2(basename, _pitch), (r), (c))
 
-//global dimensions: divUp(image.cols, block.x), divUp(image.rows, block.y);
-//__attribute__((reqd_work_group_size(WORKGROUP_TILE_SIZE_X, WORKGROUP_TILE_SIZE_Y, 1)))
-//__kernel void
-//make_connectivity_image(uint im_rows, uint im_cols, __global PixelT *image_p, uint image_pitch, __global ConnectivityPixelT *connectivityim_p, uint connectivityim_pitch){
-//    const uint c = get_global_id(1);
-//    const uint r = get_global_id(0);
-//    const bool valid_pixel_task = (c < im_cols) & (r < im_rows);
-//
-//    if(valid_pixel_task){
-//        PixelT pixel = pixel_at(PixelT, image, r, c);
-//        ConnectivityPixelT connectivity = 0;
-//
-//#if CONNECTIVITY == 8
-//        connectivity |= c > 0 && r > 0                     && isConnected(pixel, pixel_at(PixelT, image, r-1, c - 1)) ? LEFT_UP : 0
-//        connectivity |= c > 0                              && isConnected(pixel, pixel_at(PixelT, image, r, c - 1)) ? LEFT : 0
-//        connectivity |= c > 0 && r < im_rows - 1           && isConnected(pixel, pixel_at(PixelT, image, r+1, c - 1)) ? LEFT_DOWN : 0
-//        connectivity |=          r < im_rows - 1           && isConnected(pixel, pixel_at(PixelT, image, r+1, c)) ? DOWN : 0
-//        connectivity |= c < im_cols - 1 && r < im_rows - 1 && isConnected(pixel, pixel_at(PixelT, image, r+1, c + 1)) ? RIGHT_DOWN : 0
-//        connectivity |= c < im_cols - 1                    && isConnected(pixel, pixel_at(PixelT, image, r, c + 1)) ? RIGHT : 0
-//        connectivity |= c < im_cols - 1 && r > 0           && isConnected(pixel, pixel_at(PixelT, image, r-1, c + 1)) ? RIGHT_UP : 0
-//        connectivity |=          r > 0                     && isConnected(pixel, pixel_at(PixelT, image, r-1, c)) ? UP : 0
-//#else
-//        connectivity |= c > 0                              && isConnected(pixel, pixel_at(PixelT, image, r, c - 1)) ? LEFT : 0
-//        connectivity |=          r < im_rows - 1           && isConnected(pixel, pixel_at(PixelT, image, r+1, c)) ? DOWN : 0
-//        connectivity |= c < im_cols - 1                    && isConnected(pixel, pixel_at(PixelT, image, r, c + 1)) ? RIGHT : 0
-//        connectivity |=          r > 0                     && isConnected(pixel, pixel_at(PixelT, image, r-1, c)) ? UP : 0
-//#endif
-//
-//        pixel_at(ConnectivityPixelT, connectivity, r, c) = connectivity;
-//    }
-//}
-
 #define CONNECTIVITY_TILE_OUTPUT 0
 
 #define apron_pixel(apron, _t_r, _t_c) apron[(_t_r+ 1)][(_t_c + 1)]
