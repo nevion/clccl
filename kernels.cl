@@ -205,10 +205,15 @@ __kernel void label_tiles(
     tile_cols = tile_col_end - tile_col_start;
 
     __local LDSLabelT label_tile_im[TILE_ROWS][TILE_COLS];
+#ifdef SHM_EDGE_TILE
     __local LDSConnectivityPixelT  edge_tile_im[TILE_ROWS][TILE_COLS];
+#endif
 
     LDSLabelT new_labels[WORKITEM_REPEAT_Y][WORKITEM_REPEAT_X];
     LDSLabelT old_labels[WORKITEM_REPEAT_Y][WORKITEM_REPEAT_X];
+#ifndef SHM_EDGE_TILE
+    LDSConnectivityPixelT edges[WORKITEM_REPEAT_Y][WORKITEM_REPEAT_X];
+#endif
 
     #pragma unroll
     for (int i = 0; i < WORKITEM_REPEAT_Y; ++i){
@@ -226,7 +231,11 @@ __kernel void label_tiles(
             c = tile_row >= tile_rows - 1 ? c & ~(DOWN|LEFT_DOWN|RIGHT_DOWN) : c;
 
             new_labels[i][j] = valid_pixel_task ? tile_row * tile_cols + tile_col : ((LDSLabelT) -1);
+#ifdef SHM_EDGE_TILE
             edge_tile_im[tile_row][tile_col] = c;
+#else
+            edges[i][j] = c;
+#endif
         }
     }
 
@@ -252,7 +261,11 @@ __kernel void label_tiles(
                 const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
                 const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
 
+#ifdef SHM_EDGE_TILE
                 const ConnectivityPixelT connectivity = edge_tile_im[tile_row][tile_col];
+#else
+                const ConnectivityPixelT connectivity = edges[i][j];
+#endif
                 LDSLabelT label = new_labels[i][j];
 
 #if CONNECTIVITY == 8
