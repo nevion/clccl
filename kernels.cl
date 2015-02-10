@@ -449,6 +449,48 @@ uint merge_edge_labels(const uint im_rows, const uint im_cols, __global LabelT *
 #define nway_merge_in_row_tiles NWAY_MERGE_IN_ROW_TILES
 #define nway_merge_in_col_tiles NWAY_MERGE_IN_COL_TILES
 
+#define MERGE_TILE_HEADER                                                                                                 \
+    size_t rmerge_job_id;                                                                                                 \
+    size_t cmerge_job_id;                                                                                                 \
+    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){                                                                  \
+        rmerge_job_id = get_group_id(0) / ncol_tile_merges;                                                               \
+        cmerge_job_id = get_group_id(0) % ncol_tile_merges;                                                               \
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);                                                      \
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);                                                      \
+    }else if(nrow_tile_merges > 0){/*ncol_tile_merges = 0*/                                                               \
+        rmerge_job_id = get_group_id(0);                                                                                  \
+        cmerge_job_id = 0;                                                                                                \
+        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);                                                      \
+    }else{/*nrow_tile_merges = 0*/                                                                                        \
+        rmerge_job_id = 0;                                                                                                \
+        cmerge_job_id = get_group_id(0);                                                                                  \
+        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);                                                      \
+    }                                                                                                                     \
+                                                                                                                          \
+    const size_t tid = get_local_id(0);                                                                                   \
+    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;        \
+    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;          \
+    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;                                                       \
+    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);                                             \
+    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;        \
+    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;          \
+    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;                                                       \
+    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);                                             \
+                                                                                                                          \
+    const size_t line_wg_id = get_group_id(1);                                                                            \
+    const size_t nline_workers = get_num_groups(1);                                                                       \
+    const size_t wg_size = get_local_size(0);                                                                             \
+    const size_t line_block_size = wg_size;/*efficient block size*/
+
+#define BLOCKED_LINE_HEADER(start, end)                                                                                                                   \
+    const size_t nline_blocks = divUp((end) - (start), line_block_size);/*number of efficiently processible blocks*/                                      \
+    const size_t nline_blocks_per_wg = nline_blocks / nline_workers;                                                                                      \
+    const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);                                                           \
+    const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);   \
+    const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);                                                       \
+    const size_t line_start_index = nline_blocks_to_left * line_block_size + (start);                                                                     \
+    const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, (end));/*block aligned end*/
+
 //ncalls: logUp(ntiles, nway_merge)
 //group size: k, 1: k can be anything
 //gdims: roundUpToMultiple(im_cols, k), nmerges : nmerges = ntiles // (nway_merge * block_size)
@@ -463,37 +505,7 @@ __kernel void merge_tiles(
     __global LabelT *labelim_p, const uint labelim_pitch
     ,__global uint *gn_merge_conflicts
 ){
-    size_t rmerge_job_id;
-    size_t cmerge_job_id;
-    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){
-        rmerge_job_id = get_group_id(0) / ncol_tile_merges;
-        cmerge_job_id = get_group_id(0) % ncol_tile_merges;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }else if(nrow_tile_merges > 0){//ncol_tile_merges = 0
-        rmerge_job_id = get_group_id(0);
-        cmerge_job_id = 0;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-    }else{//nrow_tile_merges = 0
-        rmerge_job_id = 0;
-        cmerge_job_id = get_group_id(0);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }
-
-    const size_t tid = get_local_id(0);
-    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;
-    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);
-    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
-    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
-
-    const size_t line_wg_id = get_group_id(1);
-    const size_t nline_workers = get_num_groups(1);
-    const size_t wg_size = get_local_size(0);
-    const size_t line_block_size = wg_size;//efficient block size
+    MERGE_TILE_HEADER
 
     uint pn_merge_conflicts;
     do{
@@ -504,13 +516,7 @@ __kernel void merge_tiles(
         lds_barrier();
         pn_merge_conflicts = 0;
         if(nrow_tile_merges){
-            const size_t nline_blocks = divUp(cmerge_end - cmerge_start, line_block_size);//number of efficiently processible blocks
-            const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
-            const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
-            const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
-            const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
-            const size_t line_start_index = nline_blocks_to_left * line_block_size + cmerge_start;
-            const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, cmerge_end);//block aligned end
+            BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
             assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
             assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
             for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -565,13 +571,7 @@ __kernel void merge_tiles(
         }
 
         if(ncol_tile_merges){
-            const size_t nline_blocks = divUp(rmerge_end - rmerge_start, line_block_size);//number of efficiently processible blocks
-            const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
-            const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
-            const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
-            const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
-            const size_t line_start_index = nline_blocks_to_left * line_block_size + rmerge_start;
-            const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, rmerge_end);//block aligned end
+            BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
 
             assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
             assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
@@ -647,32 +647,7 @@ __kernel void post_merge_convergence_check(
     const __global LabelT *labelim_p, const uint labelim_pitch
     ,__global uint *gn_failed_merges
 ){
-    size_t rmerge_job_id;
-    size_t cmerge_job_id;
-    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){
-        rmerge_job_id = get_group_id(0) / ncol_tile_merges;
-        cmerge_job_id = get_group_id(0) % ncol_tile_merges;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }else if(nrow_tile_merges > 0){//ncol_tile_merges = 0
-        rmerge_job_id = get_group_id(0);
-        cmerge_job_id = 0;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-    }else{//nrow_tile_merges = 0
-        rmerge_job_id = 0;
-        cmerge_job_id = get_group_id(0);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }
-
-    const size_t tid = get_local_id(0);
-    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;
-    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);
-    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
-    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
+    MERGE_TILE_HEADER
 
     uint pn_failed_merges;
     __local uint n_failed_merges;
@@ -682,6 +657,7 @@ __kernel void post_merge_convergence_check(
     lds_barrier();
     pn_failed_merges = 0;
     if(nrow_tile_merges){
+        BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
         #pragma unroll
@@ -694,7 +670,8 @@ __kernel void post_merge_convergence_check(
             {
                 const uint r = rmerge_block_index * TILE_ROWS;//the middle point to merge about
                 //merge along the columns - ie this merges to horizontally seperated tiles
-                for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
+                for(uint c = line_start_index + tid; c < line_end_index; c += get_local_size(0)){
+                //for(uint c = cmerge_start + tid; c < cmerge_end; c += get_local_size(0)){
                     const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
 
                     const LabelT l1 = pixel_at(LabelT, labelim, r, c);
@@ -720,6 +697,7 @@ __kernel void post_merge_convergence_check(
     }
 
     if(ncol_tile_merges){
+        BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
         #pragma unroll
@@ -732,7 +710,8 @@ __kernel void post_merge_convergence_check(
             {
                 const uint c = cmerge_block_index * TILE_COLS;//the middle point to merge about
                 //merge along the rows - ie this merges to vertically seperated tiles
-                for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                //for(uint r = rmerge_start + tid; r < rmerge_end; r += get_local_size(0)){
+                for(uint r = line_start_index + tid; r < line_end_index; r += get_local_size(0)){
 
                     const ConnectivityPixelT e = pixel_at(ConnectivityPixelT, connectivityim, r, c);
                     const LabelT l1 = pixel_at(LabelT, labelim, r, c);
@@ -775,46 +754,10 @@ __kernel void post_merge_flatten(
     const __global ConnectivityPixelT *connectivityim_p, const uint connectivityim_pitch,
     __global LabelT *labelim_p, const uint labelim_pitch
 ){
-    size_t rmerge_job_id;
-    size_t cmerge_job_id;
-    if((nrow_tile_merges > 0) & (ncol_tile_merges > 0)){
-        rmerge_job_id = get_group_id(0) / ncol_tile_merges;
-        cmerge_job_id = get_group_id(0) % ncol_tile_merges;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }else if(nrow_tile_merges > 0){//ncol_tile_merges = 0
-        rmerge_job_id = get_group_id(0);
-        cmerge_job_id = 0;
-        assert_val(rmerge_job_id < nrow_tile_merges, rmerge_job_id);
-    }else{//nrow_tile_merges = 0
-        rmerge_job_id = 0;
-        cmerge_job_id = get_group_id(0);
-        assert_val(cmerge_job_id < ncol_tile_merges, cmerge_job_id);
-    }
-
-    const size_t tid = get_local_id(0);
-    const uint rmerge_block_index_start = (rmerge_job_id + 0) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_block_index_end = (rmerge_job_id + 1) * block_size_in_row_tiles * nway_merge_in_row_tiles;
-    const uint rmerge_start = rmerge_block_index_start * TILE_ROWS;
-    const uint rmerge_end = min(rmerge_block_index_end * TILE_ROWS, im_rows);
-    const uint cmerge_block_index_start = (cmerge_job_id + 0) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_block_index_end = (cmerge_job_id + 1) * block_size_in_col_tiles * nway_merge_in_col_tiles;
-    const uint cmerge_start = cmerge_block_index_start * TILE_COLS;
-    const uint cmerge_end = min(cmerge_block_index_end * TILE_COLS, im_cols);
-
-    const size_t line_wg_id = get_group_id(1);
-    const size_t nline_workers = get_num_groups(1);
-    const size_t wg_size = get_local_size(0);
-    const size_t line_block_size = wg_size;//efficient block size
+    MERGE_TILE_HEADER
 
     if(nrow_tile_merges){
-        const size_t nline_blocks = divUp(cmerge_end - cmerge_start, line_block_size);//number of efficiently processible blocks
-        const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
-        const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
-        const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
-        const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
-        const size_t line_start_index = nline_blocks_to_left * line_block_size + cmerge_start;
-        const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, cmerge_end);//block aligned end
+        BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
         for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -837,13 +780,7 @@ __kernel void post_merge_flatten(
     }
 
     if(ncol_tile_merges){
-        const size_t nline_blocks = divUp(rmerge_end - rmerge_start, line_block_size);//number of efficiently processible blocks
-        const size_t nline_blocks_per_wg = nline_blocks / nline_workers;
-        const size_t nline_blocks_remainder = nline_blocks - (nline_workers * nline_blocks_per_wg);
-        const size_t nline_blocks_to_left = nline_blocks_per_wg * line_wg_id + (line_wg_id < nline_blocks_remainder ? line_wg_id : nline_blocks_remainder);
-        const size_t n_wg_blocks = nline_blocks_per_wg + (line_wg_id < nline_blocks_remainder ? 1 : 0);
-        const size_t line_start_index = nline_blocks_to_left * line_block_size + rmerge_start;
-        const size_t line_end_index = min(line_start_index + n_wg_blocks * line_block_size, rmerge_end);//block aligned end
+        BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
 
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
@@ -890,6 +827,22 @@ __kernel void mark_root_classes(
 MAKE_WORK_GROUP_FUNCTIONS(uint, uint, 0U, UINT_MAX)
 #endif
 
+#define PREFIX_SUM_HEADER                                                                                                                \
+    const uint narray_workers = get_num_groups(0);                                                                                       \
+    const uint array_length = im_rows * im_cols;                                                                                         \
+    const uint array_wg_id = get_group_id(0);                                                                                            \
+    const uint wg_size = get_local_size(0);                                                                                              \
+    const uint block_size = wg_size;/*efficient block size*/                                                                             \
+    const uint nblocks = divUp(array_length, block_size);/*number of efficiently processible blocks*/                                    \
+    const uint nblocks_per_wg = nblocks / narray_workers;                                                                                \
+    const uint nblocks_to_merge = nblocks / nblocks_per_wg;                                                                              \
+    const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);                                                          \
+    const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);     \
+    const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);                                                 \
+                                                                                                                                         \
+    const uint start_index = nblocks_to_left * block_size;                                                                               \
+    const uint end_index_ = start_index + n_wg_blocks * block_size;/*block aligned end*/
+
 //root class inclusive prefix sums belonging to each compute unit given to each tile - note if narray_workers == 1, no merge step is necessary
 //computes local prefix sums to get intra-wg blocksums, prefix sum that to get intra-wg offsets - this is needed to merge the final blocksums
 //global dims: <wgs_per_histogram, n_tiles>, work_dims: <wg_size, 1>
@@ -903,21 +856,8 @@ __kernel void mark_roots_and_make_intra_wg_block_local_prefix_sums(uint im_rows,
     __global uint * restrict array_intra_wg_block_sums_p,
     __global uint * restrict array_prefix_sum_p, const uint array_prefix_sum_pitch
 ){
-    const uint array_length = im_rows * im_cols;
-    const uint array_wg_id = get_group_id(0);
-    const uint narray_workers = get_num_groups(0);
-    const uint wg_size = get_local_size(0);
-    const uint block_size = wg_size;//efficient block size
-    const uint nblocks = divUp(array_length, block_size);//number of efficiently processible blocks
-    const uint nblocks_per_wg = nblocks / narray_workers;
-    //const uint nblocks_to_merge = nblocks / nblocks_per_wg;
-    const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);
-    const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
-    const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
 
-    const uint start_index = nblocks_to_left * block_size;
-    const uint end_index_ = start_index + n_wg_blocks * block_size;//block aligned end
-
+    PREFIX_SUM_HEADER
     uint inter_block_sum = 0;
 
     for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
@@ -1022,22 +962,7 @@ __kernel void make_prefix_sums_with_intra_wg_block_global_sums(
     __global uint * restrict array_of_prefix_sums_p, uint array_of_prefix_sums_pitch,
     __global LabelT* label_count_p
 ){
-    const uint array_length = im_rows * im_cols;
-    const uint n_arrays = get_num_groups(1);
-    const uint array_id = get_group_id(1);
-    const uint array_wg_id = get_group_id(0);
-    const uint narray_workers = get_num_groups(0);
-    const uint wg_size = get_local_size(0);
-    const uint block_size = wg_size;//efficient block size
-    const uint nblocks = divUp(array_length, block_size);//number of efficiently processible blocks
-    const uint nblocks_per_wg = nblocks / narray_workers;
-    const uint nblocks_to_merge = nblocks / nblocks_per_wg;
-    const uint nblocks_remainder = nblocks - (narray_workers * nblocks_per_wg);
-    const uint nblocks_to_left = nblocks_per_wg * array_wg_id + (array_wg_id < nblocks_remainder ? array_wg_id : nblocks_remainder);
-    const uint n_wg_blocks = nblocks_per_wg + (array_wg_id < nblocks_remainder ? 1 : 0);
-
-    const uint start_index = nblocks_to_left * block_size;
-    const uint end_index_ = start_index + n_wg_blocks * block_size;//block aligned end
+    PREFIX_SUM_HEADER
 
     const uint inter_block_sum = intra_wg_block_sums_p[array_wg_id];
     for(uint linear_index = get_local_id(0) + start_index; linear_index < end_index_; linear_index += wg_size){
