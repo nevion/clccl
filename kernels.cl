@@ -102,7 +102,7 @@ __kernel void make_connectivity_image(
     tile_rows = tile_row_end - tile_row_start;
     tile_cols = tile_col_end - tile_col_start;
     const uint apron_tile_cols = tile_cols + 2;;
-    const uint n_tile_pixels = tile_rows * tile_cols;
+    //const uint n_tile_pixels = tile_rows * tile_cols;
     const uint n_work_items = get_local_size(0) * get_local_size(1);
     const uint n_apron_tile_pixels = (tile_rows + 2) * (apron_tile_cols);
     __local LDSPixelT im_tile[TILE_ROWS + 2][TILE_COLS + 2];
