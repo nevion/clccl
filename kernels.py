@@ -15,10 +15,10 @@ class CCL(object):
         self.img_size = np.asarray(img_size, np.uint32)
         self.program = None
         self.kernel = None
-        self.WORKGROUP_TILE_SIZE_X = 32
-        self.WORKGROUP_TILE_SIZE_Y = 8
-        self.WORKITEM_REPEAT_X     = 1
-        self.WORKITEM_REPEAT_Y     = 4
+        self.WORKGROUP_TILE_SIZE_X = 16
+        self.WORKGROUP_TILE_SIZE_Y = 16
+        self.WORKITEM_REPEAT_X     = 4
+        self.WORKITEM_REPEAT_Y     = 1
         self.TILE_ROWS = self.WORKGROUP_TILE_SIZE_Y * self.WORKITEM_REPEAT_Y
         self.TILE_COLS = self.WORKGROUP_TILE_SIZE_X * self.WORKITEM_REPEAT_X
         self.COMPACT_TILE_ROWS = 32
