@@ -302,12 +302,8 @@ __kernel void label_tiles(
             for(int j = 0; j < WORKITEM_REPEAT_X; ++j){
                 const uint tile_row = get_local_id(1) + WORKGROUP_TILE_SIZE_Y * i;
                 const uint tile_col = get_local_id(0) + WORKGROUP_TILE_SIZE_X * j;
-                const bool valid_pixel_task = (tile_col < tile_cols) & (tile_row < tile_rows);
                 const uint old_label = old_labels[i][j];
-                if(valid_pixel_task & (new_labels[i][j] < old_label)){
-                    pchanged++;
-                    atomic_min(&label_tile_im[old_label / tile_cols][old_label % tile_cols], new_labels[i][j]);
-                }
+                pchanged += atomic_min(&label_tile_im[old_label / tile_cols][old_label % tile_cols], new_labels[i][j]) > new_labels[i][j];
             }
         }
         atomic_add(&changed, pchanged);
