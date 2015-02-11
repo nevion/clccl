@@ -5,8 +5,25 @@ from scipy.misc import imread
 import time
 import sys
 
-fname = sys.argv[-1]
-frame = imread(fname)
+debug = False
+max_cus = 4 * compute_units
+filename = 'image.png'
+iters = 500
+
+if __name__ == '__main__':
+    import argparse, sys
+    parser = argparse.ArgumentParser()
+    parser.add_argument('filename', default=filename)
+    parser.add_argument('--debug', action='store_true', default=debug)
+    parser.add_argument('--max-cus', type=int, default=max_cus)
+    parser.add_argument('-i','--iterations', type=int, default=iters)
+    args = parser.parse_args()
+    filename = args.filename
+    debug = args.debug
+    max_cus = args.max_cus
+    iters = args.iterations
+
+frame = imread(filename)
 
 pixel_dtype = np.dtype(np.uint32)
 label_dtype = np.dtype(np.uint32)
@@ -15,7 +32,7 @@ wg_size = default_wg_size
 img = frame.astype(pixel_dtype)
 
 h,w = img.shape
-ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, debug=False, best_wg_size = wg_size, max_cus = 4 * compute_units, use_fused_mark=False)
+ccl = CCL(img.shape, pixel_dtype, label_dtype, connectivity_dtype, debug=debug, best_wg_size = wg_size, max_cus = max_cus, use_fused_mark=False)
 ccl.compile()
 
 cl_src_img = ccl.make_input_buffer(queue)
@@ -43,8 +60,6 @@ print 'compiled'
 upload().wait()
 print 'uploaded'
 
-iters = 100*5
-#iters = 1
 times = np.zeros((iters, 2), np.double)
 loop_start = time.time()
 for x in range(iters):
