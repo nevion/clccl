@@ -81,13 +81,23 @@ def load_tests(loader, tests, pattern):
                 cl_img = ccl.make_input_buffer(queue)
                 img = self.img
                 event = cl.enqueue_copy(queue, cl_img.data, img)
-                event, N_d, labelim_d, labelim_i_d, prefix_sums_d = ccl(queue, cl_img, wait_for=[event])
+                event, N_d, labelim_d, labelim_i_d, prefix_sums_d, connectivityim_d = ccl(queue, cl_img, wait_for=[event], all_outputs = True)
+                event, dcountim_i_d = ccl.count_invalid_labels(queue, labelim_i_d, connectivityim_d, wait_for=[event])
+                event, dcountim_d = ccl.count_invalid_labels(queue, labelim_d, connectivityim_d, wait_for=[event])
                 event.wait()
                 N = N_d.get()
                 labelim = labelim_d.get()
                 labelim_i = labelim_i_d.get()
                 prefix_sums = prefix_sums_d.get()
                 N_ref, cc_ref = cv2.connectedComponents(img.astype(np.uint8))
+                dcountim_i = dcountim_i_d.get()
+                dcountim = dcountim_d.get()
+                connectivityim = connectivityim_d.get()
+
+                xx, yy = np.meshgrid(np.arange(img.shape[0]), np.arange(img.shape[1]))
+                linear_index = xx + yy * img.shape[1]
+                prefix_sum_ref = inclusive_prefix_sum(((labelim_i == linear_index) & (img != 0)).ravel())
+                np.testing.assert_equal(prefix_sum_ref, prefix_sums.ravel())
 
                 np.testing.assert_array_equal(labelim, cc_ref)
                 self.assertEqual(N, N_ref)
