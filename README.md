@@ -1,5 +1,5 @@
 #clccl
-An OpenCL implementation of "Connected Component Labeling in CUDA" from Onrej Stava, Bedrich Benes (2010)
+An OpenCL implementation of Connected Components Labeling based on "Connected Component Labeling in CUDA" from Onrej Stava, Bedrich Benes (2010) with speedups, bugfixes et al.
 
 Instructions:
 
