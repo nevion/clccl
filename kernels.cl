@@ -102,7 +102,7 @@ __constant const uint RIGHT_DOWN = (1<<7);
 
 #define isConnected(p1, p2) ((p1) == (p2))
 
-#ifdef NV_ARCH
+#ifdef NVIDIA_ARCH
 #define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE(basename, _p), im_rows, im_cols, PASTE(basename, _pitch), (r), (c))
 #else
 #define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE2(basename, _p), im_rows, im_cols, PASTE2(basename, _pitch), (r), (c))
