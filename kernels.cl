@@ -102,7 +102,11 @@ __constant const uint RIGHT_DOWN = (1<<7);
 
 #define isConnected(p1, p2) ((p1) == (p2))
 
+#ifdef NV_ARCH
+#define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE(basename, _p), im_rows, im_cols, PASTE(basename, _pitch), (r), (c))
+#else
 #define pixel_at(type, basename, r, c) image_pixel_at(type, PASTE2(basename, _p), im_rows, im_cols, PASTE2(basename, _pitch), (r), (c))
+#endif
 
 #define CONNECTIVITY_TILE_OUTPUT 0
 
@@ -583,7 +587,7 @@ __kernel void merge_tiles(
         lds_barrier();
         pn_merge_conflicts = 0;
         if(nrow_tile_merges){
-            BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
+            BLOCKED_LINE_HEADER(cmerge_start, ((size_t)cmerge_end))
             assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
             assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
             for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -638,7 +642,7 @@ __kernel void merge_tiles(
         }
 
         if(ncol_tile_merges){
-            BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
+            BLOCKED_LINE_HEADER(rmerge_start, ((size_t)rmerge_end))
 
             assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
             assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
@@ -726,7 +730,7 @@ __kernel void post_merge_convergence_check(
     lds_barrier();
     pn_failed_merges = 0;
     if(nrow_tile_merges){
-        BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
+        BLOCKED_LINE_HEADER(cmerge_start, ((size_t)cmerge_end))
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
         #pragma unroll
@@ -766,7 +770,7 @@ __kernel void post_merge_convergence_check(
     }
 
     if(ncol_tile_merges){
-        BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
+        BLOCKED_LINE_HEADER(rmerge_start, ((size_t)rmerge_end))
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
         #pragma unroll
@@ -828,7 +832,7 @@ __kernel void post_merge_flatten(
     MERGE_TILE_HEADER
 
     if(nrow_tile_merges){
-        BLOCKED_LINE_HEADER(cmerge_start, cmerge_end)
+        BLOCKED_LINE_HEADER(cmerge_start, ((size_t)cmerge_end))
         assert_val(block_size_in_row_tiles * TILE_ROWS < im_rows, block_size_in_row_tiles * TILE_ROWS);
         assert_val(block_size_in_row_tiles < divUp(im_rows, TILE_ROWS), block_size_in_row_tiles);
         for(uint rmerge_sub_index = 1; rmerge_sub_index < nway_merge_in_row_tiles; rmerge_sub_index++){
@@ -851,7 +855,7 @@ __kernel void post_merge_flatten(
     }
 
     if(ncol_tile_merges){
-        BLOCKED_LINE_HEADER(rmerge_start, rmerge_end)
+        BLOCKED_LINE_HEADER(rmerge_start, ((size_t)rmerge_end))
 
         assert_val(block_size_in_col_tiles < divUp(im_cols, TILE_COLS), block_size_in_col_tiles);
         assert_val(block_size_in_col_tiles * TILE_COLS < im_cols, block_size_in_col_tiles * TILE_COLS);
