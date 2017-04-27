@@ -58,10 +58,12 @@ class CCL(object):
 
         KERNEL_FLAGS = '-D PIXELT={PixelT} -D LABELT={LabelT} -D WORKGROUP_TILE_SIZE_X={wg_tile_size_x} -D WORKGROUP_TILE_SIZE_Y={wg_tile_size_y} -D WORKITEM_REPEAT_X={wi_repeat_x} -D WORKITEM_REPEAT_Y={wi_repeat_y} -D FUSED_MARK_KERNEL={fused_mark_kernel} -D ENABLE_MERGE_CONFLICT_STATS={merge_stats} -D IMAGE_MAD_INDEXING -D IMG_ROWS={img_rows}u -D IMG_COLS={img_cols}u' \
              .format(PixelT=PixelT, LabelT=LabelT, wg_tile_size_x=self.WORKGROUP_TILE_SIZE_X, wg_tile_size_y=self.WORKGROUP_TILE_SIZE_Y, wi_repeat_y=self.WORKITEM_REPEAT_Y, wi_repeat_x=self.WORKITEM_REPEAT_X, fused_mark_kernel = int(self.fused_mark_kernel), merge_stats = int(self.merge_stats), img_rows = self.img_size[0], img_cols = self.img_size[1])
-        CL_SOURCE = file(os.path.join(base_path, 'kernels.cl'), 'r').read()
+        CL_SOURCE = None
+        with open(os.path.join(base_path, 'kernels.cl')) as f:
+            CL_SOURCE = f.read()
         CL_FLAGS = "-I %s -cl-std=CL1.2 %s" %(common_lib_path, KERNEL_FLAGS)
         CL_FLAGS = cl_opt_decorate(self, CL_FLAGS, max(self.WORKGROUP_TILE_SIZE_X*self.WORKGROUP_TILE_SIZE_Y, self.COMPACT_TILE_ROWS*self.COMPACT_TILE_COLS))
-        print '%r compile flags: %s'%(self.__class__.__name__, CL_FLAGS)
+        print('%r compile flags: %s'%(self.__class__.__name__, CL_FLAGS))
         self.program = cl.Program(ctx, CL_SOURCE).build(options=CL_FLAGS)
 
         self._make_connectivity_image                               = self.program.make_connectivity_image
